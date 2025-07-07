@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-class LocationInputWidget extends Statefulwidget {
+class LocationInputWidget extends StatefulWidget {
   const LocationInputWidget({Key? key}) : super(key: key);
 
   @override

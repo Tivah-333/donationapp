@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "818939343581",
+    "project_id": "charity-bridge-a2fdf",
+    "storage_bucket": "charity-bridge-a2fdf.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:818939343581:android:43dd5ba3558db06b226134",
+        "android_client_info": {
+          "package_name": "com.example.donationapp_fixed"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBQsF-XgY8p88yFcBEBm_Kc9U6Cb9X3eDE"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

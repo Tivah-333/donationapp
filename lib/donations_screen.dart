@@ -44,6 +44,8 @@ class _DonationsScreenState extends State<DonationsScreen> {
 
     _donationController.clear();
 
+    if (!mounted) return; // <-- Check if widget is still mounted
+
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text('Added under "$category"')),
     );
@@ -85,6 +87,7 @@ class _DonationsScreenState extends State<DonationsScreen> {
 
     if (result != null && result.isNotEmpty) {
       await doc.reference.update({'item': result});
+      if (!mounted) return;  // <-- Check if widget is still mounted
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Donation updated')),
       );
@@ -93,6 +96,7 @@ class _DonationsScreenState extends State<DonationsScreen> {
 
   void _deleteDonation(DocumentSnapshot doc) async {
     await doc.reference.delete();
+    if (!mounted) return;  // <-- Check if widget is still mounted
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('Donation deleted')),
     );
