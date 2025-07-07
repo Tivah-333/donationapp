@@ -36,33 +36,30 @@ class _ImageUploadWidgetState extends State<ImageUploadWidget> {
     });
 
     try {
-      // Create a unique file name
       final fileName = DateTime.now().millisecondsSinceEpoch.toString();
+      final storageRef = FirebaseStorage.instance.ref().child('uploads/$fileName');
 
-      // Upload to Firebase Storage
-      final ref = FirebaseStorage.instance.ref().child('uploads/$fileName.jpg');
-      await ref.putFile(_imageFile!);
+      final uploadTask = storageRef.putFile(_imageFile!);
+      final snapshot = await uploadTask;
 
-      // Get download URL
-      final downloadURL = await ref.getDownloadURL();
+      final downloadUrl = await snapshot.ref.getDownloadURL();
 
-      // Save URL to Firestore
+      // Save the URL to Firestore
       await FirebaseFirestore.instance.collection('images').add({
-        'url': downloadURL,
-        'uploaded_at': Timestamp.now(),
+        'url': downloadUrl,
+        'uploadedAt': FieldValue.serverTimestamp(),
       });
 
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Upload successful!')),
+        const SnackBar(content: Text('Image uploaded successfully')),
       );
 
       setState(() {
-        _imageFile = null;
+        _imageFile = null; // clear image after upload
       });
     } catch (e) {
-      print('Upload error: $e');
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Upload failed: $e')),
+        SnackBar(content: Text('Error uploading image: $e')),
       );
     } finally {
       setState(() {
@@ -78,21 +75,44 @@ class _ImageUploadWidgetState extends State<ImageUploadWidget> {
         if (_imageFile != null)
           Image.file(
             _imageFile!,
+            width: 200,
             height: 200,
+            fit: BoxFit.cover,
+          )
+        else
+          Container(
+            width: 200,
+            height: 200,
+            color: Colors.grey[300],
+            child: const Icon(
+              Icons.image,
+              size: 100,
+              color: Colors.white70,
+            ),
           ),
         const SizedBox(height: 16),
         ElevatedButton.icon(
           onPressed: _pickImage,
-          icon: const Icon(Icons.photo),
+          icon: const Icon(Icons.photo_library),
           label: const Text('Pick Image'),
+          style: ElevatedButton.styleFrom(
+            backgroundColor: Colors.deepPurple,
+          ),
         ),
         const SizedBox(height: 16),
         ElevatedButton.icon(
           onPressed: _isLoading ? null : _uploadImage,
           icon: _isLoading
-              ? const CircularProgressIndicator()
-              : const Icon(Icons.cloud_upload),
-          label: const Text('Upload to Firebase'),
+              ? const SizedBox(
+            width: 16,
+            height: 16,
+            child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+          )
+              : const Icon(Icons.upload),
+          label: Text(_isLoading ? 'Uploading...' : 'Upload Image'),
+          style: ElevatedButton.styleFrom(
+            backgroundColor: Colors.deepPurple,
+          ),
         ),
       ],
     );

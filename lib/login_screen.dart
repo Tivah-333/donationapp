@@ -1,82 +1,214 @@
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flutter/services.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/services.dart';
+import 'admin_home.dart';
+import 'donor_home.dart';
+import 'organization_home.dart';
 
 class LoginScreen extends StatefulWidget {
-  const LoginScreen({Key? key}) : super(key: key);
+  const LoginScreen({super.key});
 
   @override
   State<LoginScreen> createState() => _LoginScreenState();
 }
 
 class _LoginScreenState extends State<LoginScreen> {
-  final TextEditingController _emailController = TextEditingController();
-  final TextEditingController _passwordController = TextEditingController();
+  final _formKey = GlobalKey<FormState>();
+  final _emailController = TextEditingController();
+  final _passwordController = TextEditingController();
+  bool _isLoading = false;
+  bool _obscurePassword = true;
 
   Future<void> _login() async {
-    String email = _emailController.text.trim();
-    String password = _passwordController.text.trim();
+    if (!_formKey.currentState!.validate()) return;
 
-    if (email.isNotEmpty && password.isNotEmpty) {
-      SharedPreferences prefs = await SharedPreferences.getInstance();
-      await prefs.setString('email', email);
-      // You can save more info if needed (e.g. username or token)
-
-      Navigator.pushReplacementNamed(context, '/home');
-    } else {
+    // Final email validation check
+    final email = _emailController.text.trim();
+    if (!_isValidEmail(email)) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Please enter both email and password')),
+        const SnackBar(content: Text('Please enter a valid email address')),
       );
+      return;
     }
+
+    setState(() => _isLoading = true);
+
+    try {
+      final password = _passwordController.text.trim();
+
+      final userCredential = await FirebaseAuth.instance
+          .signInWithEmailAndPassword(email: email, password: password);
+
+      final userDoc = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(userCredential.user!.uid)
+          .get();
+
+      if (!mounted) return;
+      if (!userDoc.exists) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('User document not found')),
+        );
+        return;
+      }
+
+      final userRole = userDoc.data()?['role']?.toString();
+
+      if (userRole == "Donor") {
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (context) => DonorHome()),
+        );
+      } else if (userRole == "Organization") {
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (context) => OrganizationHome()),
+        );
+      } else if (userRole == "Administrator") {
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (context) => AdminHome()),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Unknown user role: $userRole')),
+        );
+        await FirebaseAuth.instance.signOut();
+      }
+    } on FirebaseAuthException catch (e) {
+      String errorMessage;
+      switch (e.code) {
+        case 'user-not-found':
+          errorMessage = 'No account found with this email';
+          break;
+        case 'wrong-password':
+          errorMessage = 'Incorrect password';
+          break;
+        case 'invalid-email':
+          errorMessage = 'Invalid email format';
+          break;
+        default:
+          errorMessage = 'Login failed: ${e.message}';
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(errorMessage)),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error: ${e.toString()}')),
+      );
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  bool _isValidEmail(String email) {
+    return RegExp(
+        r'^[a-zA-Z0-9.!#$%&*+/=?^_`{|}~-]+@[a-zA-Z0-9-]+(?:\.[a-zA-Z0-9-]+)*$'
+    ).hasMatch(email);
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Login'),
-        backgroundColor: Colors.orangeAccent,
-      ),
-      body: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const Text(
-              'Welcome Back!',
-              style: TextStyle(
-                fontSize: 24,
-                fontWeight: FontWeight.bold,
-                color: Colors.redAccent,
+      appBar: AppBar(title: const Text('Login')),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(16),
+        child: Form(
+          key: _formKey,
+          child: Column(
+            children: [
+              TextFormField(
+                controller: _emailController,
+                decoration: const InputDecoration(
+                  labelText: 'Email',
+                  prefixIcon: Icon(Icons.email),
+                  hintText: 'example@domain.com',
+                ),
+                keyboardType: TextInputType.emailAddress,
+                textInputAction: TextInputAction.next,
+                inputFormatters: [
+                  FilteringTextInputFormatter.deny(RegExp(r'\s')), // No spaces
+                ],
+                validator: (value) {
+                  if (value == null || value.isEmpty) {
+                    return 'Email is required';
+                  }
+                  if (!_isValidEmail(value.trim())) {
+                    return 'Enter a valid email address';
+                  }
+                  return null;
+                },
+                onChanged: (value) {
+                  // Auto-trim whitespace
+                  _emailController.value = _emailController.value.copyWith(
+                    text: value.trim(),
+                    selection: TextSelection.collapsed(offset: value.trim().length),
+                  );
+                },
               ),
-            ),
-            const SizedBox(height: 24),
-            TextField(
-              controller: _emailController,
-              decoration: const InputDecoration(
-                labelText: 'Email',
-                border: OutlineInputBorder(),
+              const SizedBox(height: 16),
+              TextFormField(
+                controller: _passwordController,
+                obscureText: _obscurePassword,
+                decoration: InputDecoration(
+                  labelText: 'Password',
+                  prefixIcon: const Icon(Icons.lock),
+                  suffixIcon: IconButton(
+                    icon: Icon(_obscurePassword
+                        ? Icons.visibility
+                        : Icons.visibility_off),
+                    onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
+                  ),
+                ),
+                validator: (value) {
+                  if (value == null || value.isEmpty) {
+                    return 'Password is required';
+                  }
+                  if (value.length < 6) {
+                    return 'Password must be at least 6 characters';
+                  }
+                  return null;
+                },
               ),
-            ),
-            const SizedBox(height: 16),
-            TextField(
-              controller: _passwordController,
-              obscureText: true,
-              decoration: const InputDecoration(
-                labelText: 'Password',
-                border: OutlineInputBorder(),
+              const SizedBox(height: 24),
+              SizedBox(
+                width: double.infinity,
+                height: 50,
+                child: ElevatedButton(
+                  onPressed: _isLoading ? null : _login,
+                  style: ElevatedButton.styleFrom(
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                  ),
+                  child: _isLoading
+                      ? const CircularProgressIndicator()
+                      : const Text('LOGIN'),
+                ),
               ),
-            ),
-            const SizedBox(height: 24),
-            ElevatedButton(
-              onPressed: _login,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.redAccent,
+              const SizedBox(height: 16),
+              TextButton(
+                onPressed: () => Navigator.pushNamed(context, '/signup'),
+                child: const Text("Don't have an account? Sign Up"),
               ),
-              child: const Text('Login'),
-            ),
-          ],
+              TextButton(
+                onPressed: () => Navigator.pushNamed(context, '/forgot-password'),
+                child: const Text('Forgot Password?'),
+              ),
+            ],
+          ),
         ),
       ),
     );
+  }
+
+  @override
+  void dispose() {
+    _emailController.dispose();
+    _passwordController.dispose();
+    super.dispose();
   }
 }

@@ -20,6 +20,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   void initState() {
     super.initState();
     _loadEmail();
+    // TODO: Load profile image path from SharedPreferences or cloud storage if needed
   }
 
   Future<void> _loadEmail() async {
@@ -43,7 +44,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       setState(() {
         _profileImage = File(pickedFile.path);
       });
-      // Optionally save the image path or upload it to cloud here
+      // TODO: Save pickedFile.path to SharedPreferences or upload to cloud here to persist
     }
   }
 
@@ -73,8 +74,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 radius: 50,
                 backgroundImage: _profileImage != null
                     ? FileImage(_profileImage!)
-                    : const AssetImage('assets/images/default_profile.png')
-                as ImageProvider,
+                    : const AssetImage('assets/images/default_profile.png'),
+                backgroundColor: Colors.grey[400],
                 child: _profileImage == null
                     ? const Icon(
                   Icons.camera_alt,
@@ -82,7 +83,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   color: Colors.white70,
                 )
                     : null,
-                backgroundColor: Colors.grey[400],
               ),
             ),
             const SizedBox(height: 16),
@@ -106,3 +106,4 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 }
+
