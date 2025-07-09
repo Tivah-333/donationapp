@@ -2,10 +2,28 @@ import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+
 import 'login_screen.dart';
+import 'signup_screen.dart';
 import 'donor_home.dart';
 import 'organization_home.dart';
 import 'admin_home.dart';
+import 'manage_users.dart';
+import 'manage_donations.dart';
+import 'welcome_screen.dart';
+import 'view_reports.dart';
+import 'org_status_screen.dart';
+import 'admin_org_approval.dart';
+import 'admin_settings.dart';
+import 'admin_issue_reports.dart';
+import 'admin_notifications.dart';
+import 'admin_profile_page.dart';
+import 'donation_statistics_page.dart';
+import'create_donation_request.dart';
+import 'organization_settings.dart';
+import 'report_problem_page.dart';
+import 'org_contact_support_page.dart';
+import 'org_notifications.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -13,25 +31,80 @@ void main() async {
   runApp(const CharityBridgeApp());
 }
 
-class CharityBridgeApp extends StatelessWidget {
+class CharityBridgeApp extends StatefulWidget {
   const CharityBridgeApp({super.key});
+
+  @override
+  State<CharityBridgeApp> createState() => _CharityBridgeAppState();
+}
+
+class _CharityBridgeAppState extends State<CharityBridgeApp> {
+  bool isDarkMode = false;
+
+  void toggleDarkMode(bool value) {
+    setState(() {
+      isDarkMode = value;
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'Charity Bridge',
       debugShowCheckedModeBanner: false,
+
       theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: Colors.deepPurple,
+          brightness: Brightness.light,
+        ),
         useMaterial3: true,
+        brightness: Brightness.light,
       ),
+
+      darkTheme: ThemeData(
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: Colors.deepPurple,
+          brightness: Brightness.dark,
+        ),
+        useMaterial3: true,
+        brightness: Brightness.dark,
+      ),
+
+      themeMode: isDarkMode ? ThemeMode.dark : ThemeMode.light,
+
       initialRoute: '/',
       routes: {
         '/': (context) => const AuthWrapper(),
+        '/welcome': (context) => const WelcomeScreen(),
         '/login': (context) => const LoginScreen(),
+        '/signup': (context) => const SignupScreen(),
         '/donor': (context) => const DonorHome(),
         '/organization': (context) => const OrganizationHome(),
         '/admin': (context) => const AdminHome(),
+        '/manageUsers': (context) => const ManageUsersPage(),
+        '/manageDonations': (context) => const ManageDonations(),
+        '/viewReports': (context) => const ViewReportsPage(),
+        '/orgStatus': (context) => const OrgStatusScreen(status: 'pending'),
+        '/admin/org-approvals': (context) => const AdminOrgApprovalDashboard(),
+
+        // Admin settings route passing dark mode data
+        '/admin/settings': (context) => AdminSettingsPage(
+          isDarkMode: isDarkMode,
+          onDarkModeChanged: toggleDarkMode,
+        ),
+
+        // Correct unique routes for notifications and issue reports
+        '/admin/notifications': (context) => const AdminNotificationsPage(),
+        '/admin/issue-reports': (context) => const AdminIssueReportsPage(),
+        '/admin/profile': (context) => const AdminProfilePage(),
+        '/organization/statistics': (context) => const DonationStatisticsPage(),
+        '/createRequest': (context) => const CreateDonationRequestPage(),
+        '/organization/settings': (context) => const OrganizationSettingsPage(),
+        '/reportProblem': (context) => const ReportProblemPage(),
+        '/contactSupport': (context) => const OrgContactSupportPage(),
+        '/organization/notifications': (context) => const OrgNotificationsPage(),
+
       },
     );
   }
@@ -45,49 +118,47 @@ class AuthWrapper extends StatelessWidget {
     return StreamBuilder<User?>(
       stream: FirebaseAuth.instance.authStateChanges(),
       builder: (context, snapshot) {
-        // Show loading indicator while checking auth state
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Scaffold(
             body: Center(child: CircularProgressIndicator()),
           );
         }
 
-        // If user is not logged in, show login screen
-        if (!snapshot.hasData) {
-          return const LoginScreen();
-        }
+        final user = snapshot.data;
 
-        // User is logged in - fetch their role
+        if (user == null) return const WelcomeScreen();
+
         return FutureBuilder<DocumentSnapshot>(
-          future: FirebaseFirestore.instance
-              .collection('users')
-              .doc(snapshot.data!.uid)
-              .get(),
+          future: FirebaseFirestore.instance.collection('users').doc(user.uid).get(),
           builder: (context, roleSnapshot) {
-            // Show loading indicator while fetching role
             if (roleSnapshot.connectionState == ConnectionState.waiting) {
               return const Scaffold(
                 body: Center(child: CircularProgressIndicator()),
               );
             }
 
-            // Handle missing user document
             if (!roleSnapshot.hasData || !roleSnapshot.data!.exists) {
               WidgetsBinding.instance.addPostFrameCallback((_) {
                 FirebaseAuth.instance.signOut();
                 ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('User data not found')),
+                  const SnackBar(content: Text('User data not found.')),
                 );
               });
               return const LoginScreen();
             }
 
-            // Get user role and navigate accordingly
-            final role = roleSnapshot.data!['role'] as String?;
+            final data = roleSnapshot.data!.data() as Map<String, dynamic>?;
+
+            final role = data?['role'] as String?;
+            final status = data?['status'] as String? ?? 'approved';
+
             switch (role) {
               case 'Donor':
                 return const DonorHome();
               case 'Organization':
+                if (status == 'pending' || status == 'rejected') {
+                  return OrgStatusScreen(status: status);
+                }
                 return const OrganizationHome();
               case 'Administrator':
                 return const AdminHome();

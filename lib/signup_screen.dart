@@ -29,19 +29,22 @@ class _SignupScreenState extends State<SignupScreen> {
       final userCredential = await FirebaseAuth.instance
           .createUserWithEmailAndPassword(email: email, password: password);
 
-      // Save user role in Firestore
+      // Determine initial status
+      final status = _selectedRole == 'Organization' ? 'pending' : 'approved';
+
+      // Save user data to Firestore
       await FirebaseFirestore.instance
           .collection('users')
           .doc(userCredential.user!.uid)
           .set({
         'email': email,
         'role': _selectedRole,
+        'status': status,
         'createdAt': FieldValue.serverTimestamp(),
       });
 
       print('✅ Signup successful for $email with role $_selectedRole');
 
-      // ✅ Redirect to '/' to trigger AuthWrapper
       if (!mounted) return;
       Navigator.of(context).pushNamedAndRemoveUntil('/', (route) => false);
 
@@ -96,8 +99,7 @@ class _SignupScreenState extends State<SignupScreen> {
                 }).toList(),
                 onChanged: (value) => setState(() => _selectedRole = value),
                 decoration: const InputDecoration(labelText: 'Select Role'),
-                validator: (value) =>
-                value == null ? 'Select a role' : null,
+                validator: (value) => value == null ? 'Select a role' : null,
               ),
               const SizedBox(height: 24),
               SizedBox(
@@ -127,3 +129,4 @@ class _SignupScreenState extends State<SignupScreen> {
     super.dispose();
   }
 }
+
