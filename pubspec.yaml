@@ -22,6 +22,7 @@ dependencies:
 
   # App features
   geolocator: ^10.1.0
+  geocoding: ^2.1.0
   image_picker: ^1.1.2
   fl_chart: ^0.66.0
   intl: ^0.17.0
