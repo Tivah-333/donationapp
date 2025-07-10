@@ -24,6 +24,16 @@ import 'organization_settings.dart';
 import 'report_problem_page.dart';
 import 'org_contact_support_page.dart';
 import 'org_notifications.dart';
+import 'make_donation.dart';
+import 'donors_donation_history.dart';
+import 'donor_notification_setting.dart';
+import 'donor_contact_support_page.dart';
+import 'donor_report_problem_page.dart';
+import 'donor_settings.dart';
+import 'donor_profile.dart';
+
+
+
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -104,7 +114,13 @@ class _CharityBridgeAppState extends State<CharityBridgeApp> {
         '/reportProblem': (context) => const ReportProblemPage(),
         '/contactSupport': (context) => const OrgContactSupportPage(),
         '/organization/notifications': (context) => const OrgNotificationsPage(),
-
+        '/donate': (context) => const MakeDonationPage(),
+        '/donor/history': (context) => const DonorsDonationHistoryPage(),
+        '/donor/notifications': (context) => const DonorNotificationSetting(),
+        '/donor/support': (context) => const DonorContactSupportPage(),
+        '/donor/report': (context) => const DonorReportProblemPage(),
+        '/donor/settings': (context) => const DonorSettingsPage(),
+        '/donor/profile': (context) => const DonarProfile(),
       },
     );
   }
