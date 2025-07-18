@@ -25,15 +25,15 @@ Ensure you have the following software installed:
 ## 🏃‍➡️ Running the Application
 
 1.  *Clone the Repository:*
-    Run these commands in you terminal:
-    git clone <repository_url>
-    cd <project_directory_name>
+        *Run these commands in you terminal:*
+            *git clone <repository_url>*
+            *cd <project_directory_name>*
 
 
 2.  *Install Flutter Dependencies:*
     * In the root of your Flutter project (where pubspec.yaml is located):
-      Run;
-      flutter pub get
+      *Run;*
+        *flutter pub get*
 
 
 3.  *Verify Firebase Configuration Files:*
@@ -51,23 +51,24 @@ Ensure you have the following software installed:
     * *Web Browser*
     * *Desktop (Windows, macOS, Linux)*
 
-    To list available devices, run:
-    flutter devices
+    To list available devices, 
+        *Run;*
+            *flutter devices*
 
 
 5.  *Run the Flutter Application:*
     * With your chosen device/emulator ready, execute the following command in the project's root directory:
-      Run;
-      flutter run
+      *Run;*
+      *flutter run*
 
         * To run on a *specific device* (use its ID from flutter devices):
-          flutter run -d <device_id>
+          *flutter run -d <device_id>*
 
         * To run on a *web browser*:
-          flutter run -d chrome # or another browser like edge, firefox
+          *flutter run -d chrome # or another browser like edge, firefox*
 
         * To run as a *desktop app*:
-          flutter run -d windows # or macos, linux
+          *flutter run -d windows # or macos, linux*
 
 
     The application will build and launch on your selected target, connecting to the Firebase project configured in google-services.json, GoogleService-Info.plist, and firebase_options.dart.
