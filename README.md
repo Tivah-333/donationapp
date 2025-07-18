@@ -14,8 +14,6 @@ Ensure you have the following software installed:
 * *Flutter SDK:*
     * Follow the official installation guide: [Flutter Install Guide](https://flutter.dev/docs/get-started/install)
     * After installation, run flutter doctor in your terminal to verify your setup.
-      bash
-      flutter doctor
 
 * *Google Account:* Required to create and manage a Firebase project.
 * *Firebase CLI (Optional, but recommended for advanced features):*
@@ -27,14 +25,14 @@ Ensure you have the following software installed:
 ## 🏃‍➡️ Running the Application
 
 1.  *Clone the Repository:*
-    bash
+    Run these commands in you terminal:
     git clone <repository_url>
     cd <project_directory_name>
 
 
 2.  *Install Flutter Dependencies:*
     * In the root of your Flutter project (where pubspec.yaml is located):
-      bash
+      Run;
       flutter pub get
 
 
@@ -54,25 +52,21 @@ Ensure you have the following software installed:
     * *Desktop (Windows, macOS, Linux)*
 
     To list available devices, run:
-    bash
     flutter devices
 
 
 5.  *Run the Flutter Application:*
     * With your chosen device/emulator ready, execute the following command in the project's root directory:
-      bash
+      Run;
       flutter run
 
         * To run on a *specific device* (use its ID from flutter devices):
-          bash
           flutter run -d <device_id>
 
         * To run on a *web browser*:
-          bash
           flutter run -d chrome # or another browser like edge, firefox
 
         * To run as a *desktop app*:
-          bash
           flutter run -d windows # or macos, linux
 
 
