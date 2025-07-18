@@ -63,6 +63,7 @@ class DefaultFirebaseOptions {
     messagingSenderId: '191514245242',
     projectId: 'donationapp-3c',
     storageBucket: 'donationapp-3c.firebasestorage.app',
+    iosClientId: '191514245242-pl42tovl42p7ts67ptfklh3b9gatbh78.apps.googleusercontent.com',
     iosBundleId: 'com.example.donationappFixed',
   );
 
@@ -72,6 +73,7 @@ class DefaultFirebaseOptions {
     messagingSenderId: '191514245242',
     projectId: 'donationapp-3c',
     storageBucket: 'donationapp-3c.firebasestorage.app',
+    iosClientId: '191514245242-pl42tovl42p7ts67ptfklh3b9gatbh78.apps.googleusercontent.com',
     iosBundleId: 'com.example.donationappFixed',
   );
 
