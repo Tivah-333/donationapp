@@ -31,15 +31,24 @@ migrate_working_dir/
 .flutter-plugins-dependencies
 .pub-cache/
 .pub/
-/build/
+build/
+
+# Android Studio will place build artifacts here
+/android/app/build/
+/android/app/debug/
+/android/app/profile/
+/android/app/release/
+
+# iOS build and generated folders
+ios/Flutter/Flutter.framework/
+ios/Flutter/Flutter.podspec
+.ios/Flutter/Flutter.xcframework/
+ios/Pods/
+ios/Runner.xcworkspace/
+ios/build/
 
 # Symbolication related
 app.*.symbols
 
 # Obfuscation related
 app.*.map.json
-
-# Android Studio will place build artifacts here
-/android/app/debug
-/android/app/profile
-/android/app/release
