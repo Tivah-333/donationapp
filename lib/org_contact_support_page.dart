@@ -41,6 +41,7 @@ class _OrgContactSupportPageState extends State<OrgContactSupportPage> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Contact Support'),
+        backgroundColor: Colors.deepPurple,  // Deep purple app bar
       ),
       body: Padding(
         padding: const EdgeInsets.all(16),

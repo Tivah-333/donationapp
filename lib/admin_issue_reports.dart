@@ -42,6 +42,8 @@ class _AdminIssueReportsPageState extends State<AdminIssueReportsPage>
     return Scaffold(
       appBar: AppBar(
         title: const Text('Issue Reports'),
+        backgroundColor: Colors.deepPurple,
+        foregroundColor: Colors.black, // Ensure text and icons are dark
         bottom: TabBar(
           controller: tabController,
           tabs: const [
@@ -106,7 +108,11 @@ class _AdminIssueReportsPageState extends State<AdminIssueReportsPage>
           .orderBy('timestamp', descending: true)
           .snapshots(),
       builder: (context, snapshot) {
-        if (snapshot.hasError) return Center(child: Text('Error: ${snapshot.error}'));
+        if (snapshot.hasError) {
+          return const Center(
+            child: Text('Failed to load issues. Please check your connection.'),
+          );
+        }
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());
         }
@@ -125,7 +131,9 @@ class _AdminIssueReportsPageState extends State<AdminIssueReportsPage>
           return true;
         }).toList();
 
-        if (allIssues.isEmpty) return const Center(child: Text('No issues found.'));
+        if (allIssues.isEmpty) {
+          return const Center(child: Text('No issues found.'));
+        }
 
         return ListView.builder(
           itemCount: allIssues.length,
@@ -184,12 +192,21 @@ class _AdminIssueReportsPageState extends State<AdminIssueReportsPage>
                   items: ['Pending', 'In Progress', 'Resolved']
                       .map((s) => DropdownMenuItem(value: s, child: Text(s)))
                       .toList(),
-                  onChanged: (value) {
+                  onChanged: (value) async {
                     if (value != null) {
-                      FirebaseFirestore.instance.collection('issues').doc(issueId).update({'status': value});
-                      setState(() {
-                        currentStatus = value;
-                      });
+                      try {
+                        await FirebaseFirestore.instance
+                            .collection('issues')
+                            .doc(issueId)
+                            .update({'status': value});
+                        setState(() {
+                          currentStatus = value;
+                        });
+                      } catch (e) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('Failed to update status. Please try again.')),
+                        );
+                      }
                     }
                   },
                 ),
@@ -199,9 +216,18 @@ class _AdminIssueReportsPageState extends State<AdminIssueReportsPage>
                     ElevatedButton.icon(
                       icon: Icon(isArchived ? Icons.unarchive : Icons.archive),
                       label: Text(isArchived ? 'Unarchive' : 'Archive'),
-                      onPressed: () {
-                        FirebaseFirestore.instance.collection('issues').doc(issueId).update({'archived': !isArchived});
-                        Navigator.pop(context);
+                      onPressed: () async {
+                        try {
+                          await FirebaseFirestore.instance
+                              .collection('issues')
+                              .doc(issueId)
+                              .update({'archived': !isArchived});
+                          Navigator.pop(context);
+                        } catch (e) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('Failed to update archive status. Please try again.')),
+                          );
+                        }
                       },
                     ),
                   ],
@@ -221,16 +247,27 @@ class _AdminIssueReportsPageState extends State<AdminIssueReportsPage>
                       onPressed: () async {
                         final text = commentController.text.trim();
                         if (text.isNotEmpty) {
-                          await FirebaseFirestore.instance.collection('issues').doc(issueId).update({
-                            'comments': FieldValue.arrayUnion([
-                              {
-                                'text': text,
-                                'timestamp': FieldValue.serverTimestamp(),
-                              }
-                            ])
-                          });
-                          commentController.clear();
-                          setState(() {});
+                          try {
+                            await FirebaseFirestore.instance
+                                .collection('issues')
+                                .doc(issueId)
+                                .update({
+                              'comments': FieldValue.arrayUnion([
+                                {
+                                  'text': text,
+                                  'timestamp': FieldValue.serverTimestamp(),
+                                }
+                              ])
+                            });
+                            commentController.clear();
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(content: Text('Comment added.')),
+                            );
+                          } catch (e) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(content: Text('Failed to add comment. Please try again.')),
+                            );
+                          }
                         }
                       },
                     ),

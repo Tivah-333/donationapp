@@ -27,8 +27,11 @@ class _AdminSettingsPageState extends State<AdminSettingsPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Settings')),
-
+      appBar: AppBar(
+        title: const Text('Settings'),
+        backgroundColor: Colors.deepPurple,
+        foregroundColor: Colors.black, // Dark text/icons on purple background
+      ),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [

@@ -55,6 +55,7 @@ class _OrganizationHomeState extends State<OrganizationHome> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Organization Dashboard'),
+        backgroundColor: Colors.deepPurple,
         actions: [
           IconButton(
             icon: const Icon(Icons.notifications),

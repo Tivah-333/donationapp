@@ -22,19 +22,35 @@ class _DonorContactSupportPageState extends State<DonorContactSupportPage> {
     super.dispose();
   }
 
-  void _submitSupportRequest() {
+  Future<void> _submitSupportRequest() async {
     if (_formKey.currentState!.validate()) {
-      // TODO: You can implement Firestore/email submission here if needed
+      try {
+        // Simulate sending message to backend (e.g. Firestore, Email, etc.)
+        await Future.delayed(const Duration(seconds: 1));
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text("Thank you! We’ve received your message and will get back to you shortly."),
-        ),
-      );
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+                "Thank you! We’ve received your message and will get back to you shortly."
+            ),
+            backgroundColor: Colors.green,
+          ),
+        );
 
-      _nameController.clear();
-      _emailController.clear();
-      _messageController.clear();
+        _nameController.clear();
+        _emailController.clear();
+        _messageController.clear();
+
+      } catch (e) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+                'Failed to send message. Please check your internet connection and try again.'
+            ),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
     }
   }
 
@@ -43,6 +59,7 @@ class _DonorContactSupportPageState extends State<DonorContactSupportPage> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Contact Support'),
+        backgroundColor: Colors.deepPurple,  // Changed to deepPurple
       ),
       body: Padding(
         padding: const EdgeInsets.all(16),
@@ -94,6 +111,7 @@ class _DonorContactSupportPageState extends State<DonorContactSupportPage> {
                 onPressed: _submitSupportRequest,
                 child: const Text('Send'),
                 style: ElevatedButton.styleFrom(
+
                   padding: const EdgeInsets.symmetric(vertical: 14),
                 ),
               ),

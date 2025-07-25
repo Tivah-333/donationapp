@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:flutter/services.dart';
 import 'admin_home.dart';
 import 'donor_home.dart';
 import 'organization_home.dart';
@@ -24,7 +23,6 @@ class _LoginScreenState extends State<LoginScreen> {
   Future<void> _login() async {
     if (!_formKey.currentState!.validate()) return;
 
-    // Final email validation check
     final email = _emailController.text.trim();
     if (!_isValidEmail(email)) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -49,7 +47,7 @@ class _LoginScreenState extends State<LoginScreen> {
       if (!mounted) return;
       if (!userDoc.exists) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('User document not found')),
+          const SnackBar(content: Text('User document not found. Please contact support.')),
         );
         return;
       }
@@ -59,17 +57,17 @@ class _LoginScreenState extends State<LoginScreen> {
       if (userRole == "Donor") {
         Navigator.pushReplacement(
           context,
-          MaterialPageRoute(builder: (context) => DonorHome()),
+          MaterialPageRoute(builder: (context) => const DonorHome()),
         );
       } else if (userRole == "Organization") {
         Navigator.pushReplacement(
           context,
-          MaterialPageRoute(builder: (context) => OrganizationHome()),
+          MaterialPageRoute(builder: (context) => const OrganizationHome()),
         );
       } else if (userRole == "Administrator") {
         Navigator.pushReplacement(
           context,
-          MaterialPageRoute(builder: (context) => AdminHome()),
+          MaterialPageRoute(builder: (context) => const AdminHome()),
         );
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -78,26 +76,23 @@ class _LoginScreenState extends State<LoginScreen> {
         await FirebaseAuth.instance.signOut();
       }
     } on FirebaseAuthException catch (e) {
-      String errorMessage;
-      switch (e.code) {
-        case 'user-not-found':
-          errorMessage = 'No account found with this email';
-          break;
-        case 'wrong-password':
-          errorMessage = 'Incorrect password';
-          break;
-        case 'invalid-email':
-          errorMessage = 'Invalid email format';
-          break;
-        default:
-          errorMessage = 'Login failed: ${e.message}';
+      String errorMessage = 'Wrong email or password'; // Default message
+      if (e.code == 'invalid-email') {
+        errorMessage = 'Invalid email format';
+      } else if (e.code == 'user-disabled') {
+        errorMessage = 'This user account has been disabled';
+      } else if (e.code == 'too-many-requests') {
+        errorMessage = 'Too many login attempts. Please try again later';
+      } else if (e.code == 'network-request-failed') {
+        errorMessage = 'No internet connection. Please check your network';
       }
+
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(errorMessage)),
       );
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error: ${e.toString()}')),
+        SnackBar(content: Text('Unexpected error: ${e.toString()}')),
       );
     } finally {
       if (mounted) setState(() => _isLoading = false);
@@ -113,7 +108,10 @@ class _LoginScreenState extends State<LoginScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Login')),
+      appBar: AppBar(
+        title: const Text('Login'),
+        backgroundColor: Colors.deepPurple,
+      ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
         child: Form(
@@ -130,7 +128,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 keyboardType: TextInputType.emailAddress,
                 textInputAction: TextInputAction.next,
                 inputFormatters: [
-                  FilteringTextInputFormatter.deny(RegExp(r'\s')), // No spaces
+                  FilteringTextInputFormatter.deny(RegExp(r'\s')),
                 ],
                 validator: (value) {
                   if (value == null || value.isEmpty) {
@@ -142,7 +140,6 @@ class _LoginScreenState extends State<LoginScreen> {
                   return null;
                 },
                 onChanged: (value) {
-                  // Auto-trim whitespace
                   _emailController.value = _emailController.value.copyWith(
                     text: value.trim(),
                     selection: TextSelection.collapsed(offset: value.trim().length),

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 class WelcomeScreen extends StatefulWidget {
   const WelcomeScreen({super.key});
@@ -12,15 +13,54 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
   @override
   void initState() {
     super.initState();
-    _navigateAfterDelay();
+    _navigateUser();
   }
 
-  Future<void> _navigateAfterDelay() async {
+  Future<void> _navigateUser() async {
     await Future.delayed(const Duration(seconds: 2));
-    final prefs = await SharedPreferences.getInstance();
-    final isLoggedIn = prefs.getString('email')?.isNotEmpty ?? false;
+
+    final user = FirebaseAuth.instance.currentUser;
+
     if (!mounted) return;
-    Navigator.pushReplacementNamed(context, isLoggedIn ? '/login' : '/role-select');
+
+    if (user == null) {
+      // Not logged in → go to Login screen
+      Navigator.pushReplacementNamed(context, '/login');
+    } else {
+      // User is logged in, check role
+      final userDoc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
+
+      if (!userDoc.exists) {
+        // No data in Firestore for this user → log them out and send to Login
+        await FirebaseAuth.instance.signOut();
+        Navigator.pushReplacementNamed(context, '/login');
+        return;
+      }
+
+      final data = userDoc.data() as Map<String, dynamic>;
+      final role = data['role'] as String?;
+      final status = data['status'] as String? ?? 'approved';
+
+      switch (role) {
+        case 'Donor':
+          Navigator.pushReplacementNamed(context, '/donor');
+          break;
+        case 'Organization':
+          if (status == 'pending' || status == 'rejected') {
+            Navigator.pushReplacementNamed(context, '/orgStatus');
+          } else {
+            Navigator.pushReplacementNamed(context, '/organization');
+          }
+          break;
+        case 'Administrator':
+          Navigator.pushReplacementNamed(context, '/admin');
+          break;
+        default:
+        // Unknown role → log out and go to login
+          await FirebaseAuth.instance.signOut();
+          Navigator.pushReplacementNamed(context, '/login');
+      }
+    }
   }
 
   @override

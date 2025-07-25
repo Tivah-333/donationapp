@@ -34,8 +34,10 @@ class _DonorNotificationSettingState extends State<DonorNotificationSetting> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Notification Settings'),
+        backgroundColor: Colors.deepPurple
       ),
-      body: ListView(
+      body: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           ListTile(
             leading: const Icon(Icons.notifications),
@@ -43,6 +45,20 @@ class _DonorNotificationSettingState extends State<DonorNotificationSetting> {
             trailing: Switch(
               value: notificationsEnabled,
               onChanged: _toggleNotifications,
+            ),
+          ),
+          const Divider(),
+          Expanded(
+            child: Center(
+              child: notificationsEnabled
+                  ? const Text(
+                'You have no notifications yet.',
+                style: TextStyle(fontSize: 16),
+              )
+                  : const Text(
+                'Notifications are disabled.',
+                style: TextStyle(fontSize: 16, color: Colors.grey),
+              ),
             ),
           ),
         ],

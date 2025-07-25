@@ -9,6 +9,7 @@ class AdminHome extends StatelessWidget {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Admin Dashboard'),
+        backgroundColor: Colors.deepPurple, // ✅ AppBar colored purple
         actions: [
           IconButton(
             icon: const Icon(Icons.account_circle),
@@ -38,9 +39,7 @@ class AdminHome extends StatelessWidget {
                 padding: const EdgeInsets.symmetric(vertical: 16),
               ),
             ),
-
             const SizedBox(height: 16),
-
             ElevatedButton.icon(
               icon: const Icon(Icons.favorite),
               label: const Text('Manage Donations'),
@@ -51,9 +50,7 @@ class AdminHome extends StatelessWidget {
                 padding: const EdgeInsets.symmetric(vertical: 16),
               ),
             ),
-
             const SizedBox(height: 16),
-
             ElevatedButton.icon(
               icon: const Icon(Icons.bar_chart),
               label: const Text('View Reports'),
@@ -64,9 +61,7 @@ class AdminHome extends StatelessWidget {
                 padding: const EdgeInsets.symmetric(vertical: 16),
               ),
             ),
-
             const SizedBox(height: 16),
-
             ElevatedButton.icon(
               icon: const Icon(Icons.verified_user),
               label: const Text('Review Organization Requests'),
@@ -77,10 +72,7 @@ class AdminHome extends StatelessWidget {
                 padding: const EdgeInsets.symmetric(vertical: 16),
               ),
             ),
-
             const SizedBox(height: 16),
-
-            // ✅ Issue Reports Button
             ElevatedButton.icon(
               icon: const Icon(Icons.report_problem),
               label: const Text('Issue Reports'),
@@ -91,9 +83,7 @@ class AdminHome extends StatelessWidget {
                 padding: const EdgeInsets.symmetric(vertical: 16),
               ),
             ),
-
             const SizedBox(height: 16),
-
             ElevatedButton.icon(
               icon: const Icon(Icons.notifications),
               label: const Text('Notifications'),
@@ -104,9 +94,7 @@ class AdminHome extends StatelessWidget {
                 padding: const EdgeInsets.symmetric(vertical: 16),
               ),
             ),
-
             const SizedBox(height: 16),
-
             ElevatedButton.icon(
               icon: const Icon(Icons.settings),
               label: const Text('Settings'),
@@ -129,7 +117,9 @@ class AdminHome extends StatelessWidget {
       Navigator.pushNamedAndRemoveUntil(context, '/login', (route) => false);
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Logout failed: ${e.toString()}')),
+        const SnackBar(
+          content: Text('Failed to logout. Please check your connection.'),
+        ),
       );
     }
   }

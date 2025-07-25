@@ -23,25 +23,31 @@ class _AdminOrgApprovalDashboardState extends State<AdminOrgApprovalDashboard> w
   }
 
   Future<void> fetchCounts() async {
-    final querySnapshot = await FirebaseFirestore.instance
-        .collection('users')
-        .where('role', isEqualTo: 'Organization')
-        .get();
+    try {
+      final querySnapshot = await FirebaseFirestore.instance
+          .collection('users')
+          .where('role', isEqualTo: 'Organization')
+          .get();
 
-    int pending = 0, approved = 0, rejected = 0;
+      int pending = 0, approved = 0, rejected = 0;
 
-    for (var doc in querySnapshot.docs) {
-      final status = doc['status'] ?? 'pending';
-      if (status == 'pending') pending++;
-      else if (status == 'approved') approved++;
-      else if (status == 'rejected') rejected++;
+      for (var doc in querySnapshot.docs) {
+        final status = doc['status'] ?? 'pending';
+        if (status == 'pending') pending++;
+        else if (status == 'approved') approved++;
+        else if (status == 'rejected') rejected++;
+      }
+
+      setState(() {
+        pendingCount = pending;
+        approvedCount = approved;
+        rejectedCount = rejected;
+      });
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Failed to fetch counts. Please try again.')),
+      );
     }
-
-    setState(() {
-      pendingCount = pending;
-      approvedCount = approved;
-      rejectedCount = rejected;
-    });
   }
 
   @override
@@ -59,7 +65,7 @@ class _AdminOrgApprovalDashboardState extends State<AdminOrgApprovalDashboard> w
           .snapshots(),
       builder: (context, snapshot) {
         if (snapshot.hasError) {
-          return Center(child: Text('Error: ${snapshot.error}'));
+          return const Center(child: Text('Failed to load organizations. Check your connection.'));
         }
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());
@@ -123,7 +129,7 @@ class _AdminOrgApprovalDashboardState extends State<AdminOrgApprovalDashboard> w
       );
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Failed to update status: $e')),
+        const SnackBar(content: Text('Failed to update organization status. Please try again.')),
       );
     }
   }
@@ -133,6 +139,8 @@ class _AdminOrgApprovalDashboardState extends State<AdminOrgApprovalDashboard> w
     return Scaffold(
       appBar: AppBar(
         title: const Text('Admin Organization Approval'),
+        backgroundColor: Colors.deepPurple,
+        foregroundColor: Colors.black,
         bottom: TabBar(
           controller: _tabController,
           tabs: [

@@ -65,8 +65,8 @@ class _OrgNotificationsPageState extends State<OrgNotificationsPage> {
   Widget build(BuildContext context) {
     if (isLoading) {
       return Scaffold(
-        appBar: AppBar(title: Text('Notifications')),
-        body: Center(child: CircularProgressIndicator()),
+        appBar: AppBar(title: const Text('Notifications'), backgroundColor: Colors.deepPurple),
+        body: const Center(child: CircularProgressIndicator()),
       );
     }
 
@@ -75,6 +75,7 @@ class _OrgNotificationsPageState extends State<OrgNotificationsPage> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Notifications'),
+        backgroundColor: Colors.deepPurple,  // Deep purple app bar
         actions: [
           Row(
             children: [

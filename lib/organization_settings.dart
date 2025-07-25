@@ -15,15 +15,21 @@ class OrganizationSettingsPage extends StatefulWidget {
 }
 
 class _OrganizationSettingsPageState extends State<OrganizationSettingsPage> {
-  bool emailNotifications = true;
-  String? location;
   final user = FirebaseAuth.instance.currentUser;
   final _formKey = GlobalKey<FormState>();
 
   final TextEditingController nameController = TextEditingController();
   final TextEditingController contactController = TextEditingController();
 
+  final TextEditingController oldPasswordController = TextEditingController();
+  final TextEditingController newPasswordController = TextEditingController();
+  final TextEditingController confirmPasswordController = TextEditingController();
+
   String? profileImageUrl;
+  String? location;
+
+  bool isDarkTheme = false;
+  bool showPasswordFields = false; // <<<<< controls showing password fields
 
   @override
   void initState() {
@@ -39,8 +45,8 @@ class _OrganizationSettingsPageState extends State<OrganizationSettingsPage> {
       if (data != null) {
         nameController.text = data['name'] ?? '';
         contactController.text = data['contact'] ?? '';
-        emailNotifications = data['emailNotifications'] ?? true;
         profileImageUrl = data['profileImageUrl'];
+        isDarkTheme = data['isDarkTheme'] ?? false;
         setState(() {});
       }
     }
@@ -52,7 +58,7 @@ class _OrganizationSettingsPageState extends State<OrganizationSettingsPage> {
     await FirebaseFirestore.instance.collection('users').doc(user!.uid).update({
       'name': nameController.text.trim(),
       'contact': contactController.text.trim(),
-      'emailNotifications': emailNotifications,
+      'isDarkTheme': isDarkTheme,
     });
 
     ScaffoldMessenger.of(context).showSnackBar(
@@ -61,41 +67,45 @@ class _OrganizationSettingsPageState extends State<OrganizationSettingsPage> {
   }
 
   Future<void> _changePassword() async {
-    final TextEditingController passwordController = TextEditingController();
+    final oldPassword = oldPasswordController.text.trim();
+    final newPassword = newPasswordController.text.trim();
+    final confirmPassword = confirmPasswordController.text.trim();
 
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Change Password'),
-        content: TextField(
-          controller: passwordController,
-          decoration: const InputDecoration(labelText: 'New Password'),
-          obscureText: true,
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
-          ),
-          TextButton(
-            onPressed: () async {
-              try {
-                await user!.updatePassword(passwordController.text.trim());
-                Navigator.pop(context);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Password changed successfully')),
-                );
-              } catch (e) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text('Error: ${e.toString()}')),
-                );
-              }
-            },
-            child: const Text('Save'),
-          ),
-        ],
-      ),
-    );
+    if (newPassword != confirmPassword) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('New passwords do not match')),
+      );
+      return;
+    }
+
+    if (user == null || user!.email == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No user is signed in')),
+      );
+      return;
+    }
+
+    try {
+      final cred = EmailAuthProvider.credential(email: user!.email!, password: oldPassword);
+      await user!.reauthenticateWithCredential(cred);
+      await user!.updatePassword(newPassword);
+
+      oldPasswordController.clear();
+      newPasswordController.clear();
+      confirmPasswordController.clear();
+
+      setState(() {
+        showPasswordFields = false; // hide fields after success
+      });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Password updated successfully!')),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error: ${e.toString()}')),
+      );
+    }
   }
 
   Future<void> _deleteAccount() async {
@@ -173,10 +183,21 @@ class _OrganizationSettingsPageState extends State<OrganizationSettingsPage> {
   }
 
   @override
+  void dispose() {
+    nameController.dispose();
+    contactController.dispose();
+    oldPasswordController.dispose();
+    newPasswordController.dispose();
+    confirmPasswordController.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Settings'),
+        backgroundColor: Colors.deepPurple, // deep purple app bar
       ),
       body: ListView(
         padding: const EdgeInsets.all(16),
@@ -184,16 +205,13 @@ class _OrganizationSettingsPageState extends State<OrganizationSettingsPage> {
           const Text('Account Management', style: TextStyle(fontWeight: FontWeight.bold)),
           const SizedBox(height: 10),
 
-          // Profile Picture
           Center(
             child: Column(
               children: [
                 CircleAvatar(
                   radius: 50,
                   backgroundImage: profileImageUrl != null ? NetworkImage(profileImageUrl!) : null,
-                  child: profileImageUrl == null
-                      ? const Icon(Icons.person, size: 50)
-                      : null,
+                  child: profileImageUrl == null ? const Icon(Icons.person, size: 50) : null,
                 ),
                 TextButton(
                   onPressed: _changeProfilePicture,
@@ -220,19 +238,58 @@ class _OrganizationSettingsPageState extends State<OrganizationSettingsPage> {
                   decoration: const InputDecoration(labelText: 'Contact Info'),
                   validator: (value) => value!.isEmpty ? 'Required' : null,
                 ),
-                const SizedBox(height: 12),
+
+                const SizedBox(height: 24),
+
+                // Change Password toggle button
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: TextButton.icon(
+                    icon: Icon(showPasswordFields ? Icons.keyboard_arrow_up : Icons.lock),
+                    label: const Text('Change Password'),
+                    onPressed: () {
+                      setState(() {
+                        showPasswordFields = !showPasswordFields;
+                      });
+                    },
+                  ),
+                ),
+
+                if (showPasswordFields) ...[
+                  TextFormField(
+                    controller: oldPasswordController,
+                    decoration: const InputDecoration(labelText: 'Old Password'),
+                    obscureText: true,
+                  ),
+                  const SizedBox(height: 12),
+                  TextFormField(
+                    controller: newPasswordController,
+                    decoration: const InputDecoration(labelText: 'New Password'),
+                    obscureText: true,
+                  ),
+                  const SizedBox(height: 12),
+                  TextFormField(
+                    controller: confirmPasswordController,
+                    decoration: const InputDecoration(labelText: 'Confirm New Password'),
+                    obscureText: true,
+                  ),
+                  const SizedBox(height: 12),
+                  ElevatedButton.icon(
+                    icon: const Icon(Icons.lock_open),
+                    label: const Text('Update Password'),
+                    onPressed: _changePassword,
+                  ),
+                  const SizedBox(height: 24),
+                ],
+
                 ElevatedButton.icon(
                   icon: const Icon(Icons.save),
                   label: const Text('Save Changes'),
                   onPressed: _updateProfile,
                 ),
+
                 const SizedBox(height: 16),
-                ElevatedButton.icon(
-                  icon: const Icon(Icons.lock),
-                  label: const Text('Change Password'),
-                  onPressed: _changePassword,
-                ),
-                const SizedBox(height: 16),
+
                 ElevatedButton.icon(
                   icon: const Icon(Icons.delete),
                   label: const Text('Delete Account'),
@@ -248,12 +305,19 @@ class _OrganizationSettingsPageState extends State<OrganizationSettingsPage> {
 
           const Divider(height: 32),
 
-          const Text('Notification Preferences', style: TextStyle(fontWeight: FontWeight.bold)),
+          const Text('Theme Settings', style: TextStyle(fontWeight: FontWeight.bold)),
           SwitchListTile(
-            title: const Text('Email Notifications'),
-            value: emailNotifications,
-            onChanged: (val) {
-              setState(() => emailNotifications = val);
+            title: const Text('Dark Theme'),
+            value: isDarkTheme,
+            onChanged: (val) async {
+              setState(() {
+                isDarkTheme = val;
+              });
+              if (user != null) {
+                await FirebaseFirestore.instance.collection('users').doc(user!.uid).update({
+                  'isDarkTheme': val,
+                });
+              }
             },
           ),
 

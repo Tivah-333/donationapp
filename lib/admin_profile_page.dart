@@ -37,16 +37,30 @@ class _AdminProfilePageState extends State<AdminProfilePage> {
   Future<void> _changePassword() async {
     if (user == null) return;
 
-    await _auth.sendPasswordResetEmail(email: user!.email!);
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Password reset email sent')),
-    );
+    try {
+      await _auth.sendPasswordResetEmail(email: user!.email!);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Password reset email sent')),
+      );
+    } catch (e) {
+      // Error handling: show error message if password reset email sending fails
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Failed to send password reset email. Please try again.')),
+      );
+    }
   }
 
   Future<void> _logoutAllDevices() async {
-    await _auth.signOut();
-    if (context.mounted) {
-      Navigator.pushNamedAndRemoveUntil(context, '/login', (route) => false);
+    try {
+      await _auth.signOut();
+      if (context.mounted) {
+        Navigator.pushNamedAndRemoveUntil(context, '/login', (route) => false);
+      }
+    } catch (e) {
+      // Error handling: show error message if logout fails
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Failed to logout. Please try again.')),
+      );
     }
   }
 
@@ -63,6 +77,8 @@ class _AdminProfilePageState extends State<AdminProfilePage> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Admin Profile'),
+        backgroundColor: Colors.deepPurple,
+        foregroundColor: Colors.black, // Dark text/icons for contrast on purple
       ),
       body: ListView(
         padding: const EdgeInsets.all(20),

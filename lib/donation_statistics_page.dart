@@ -9,12 +9,11 @@ class DonationStatisticsPage extends StatefulWidget {
 }
 
 class _DonationStatisticsPageState extends State<DonationStatisticsPage> {
-  // Date range presets
   final Map<String, Duration> dateRanges = {
     'Last 7 days': Duration(days: 7),
     'Last 30 days': Duration(days: 30),
     'Last 90 days': Duration(days: 90),
-    'All time': Duration(days: 365 * 10), // 10 years effectively all time
+    'All time': Duration(days: 365 * 10),
   };
 
   String selectedRangeLabel = 'Last 7 days';
@@ -23,7 +22,6 @@ class _DonationStatisticsPageState extends State<DonationStatisticsPage> {
   String searchQuery = '';
   TextEditingController searchController = TextEditingController();
 
-  // Stats variables
   int totalDonations = 0;
   int approved = 0;
   int rejected = 0;
@@ -42,7 +40,7 @@ class _DonationStatisticsPageState extends State<DonationStatisticsPage> {
 
   DateTime get startDate {
     if (selectedRangeLabel == 'All time') {
-      return DateTime(2000); // very old date to cover all data
+      return DateTime(2000);
     } else if (customDateRange != null) {
       return customDateRange!.start;
     } else {
@@ -75,10 +73,7 @@ class _DonationStatisticsPageState extends State<DonationStatisticsPage> {
         .where('timestamp', isGreaterThanOrEqualTo: Timestamp.fromDate(startDate))
         .where('timestamp', isLessThanOrEqualTo: Timestamp.fromDate(endDate));
 
-    // If searching, filter by itemName containing searchQuery (simple contains, case-insensitive)
     if (searchQuery.isNotEmpty) {
-      // Firestore does not support contains or case-insensitive, so we fetch all and filter client side
-      // So we fetch all in date range, then filter below
       final snapshot = await query.get();
       final docs = snapshot.docs;
       final filteredDocs = docs.where((doc) {
@@ -128,7 +123,6 @@ class _DonationStatisticsPageState extends State<DonationStatisticsPage> {
           break;
       }
 
-      // Count quantity per itemName
       itemCounts[itemName] = (itemCounts[itemName] ?? 0) + quantity;
     }
   }
@@ -161,11 +155,19 @@ class _DonationStatisticsPageState extends State<DonationStatisticsPage> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Donation Statistics'),
+        backgroundColor: Colors.deepPurple, // updated to deep purple
+        iconTheme: const IconThemeData(color: Colors.white),
+        titleTextStyle: const TextStyle(
+          color: Colors.white,
+          fontSize: 20,
+          fontWeight: FontWeight.bold,
+        ),
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh),
             tooltip: 'Refresh',
             onPressed: _fetchStatistics,
+            color: Colors.white,
           ),
         ],
       ),
@@ -173,7 +175,6 @@ class _DonationStatisticsPageState extends State<DonationStatisticsPage> {
         padding: const EdgeInsets.all(16),
         child: Column(
           children: [
-            // Date range dropdown + custom picker
             Row(
               children: [
                 Expanded(
@@ -205,16 +206,13 @@ class _DonationStatisticsPageState extends State<DonationStatisticsPage> {
                 ),
               ],
             ),
-
             const SizedBox(height: 16),
-
-            // Summary cards row
             SizedBox(
               height: 120,
               child: ListView(
                 scrollDirection: Axis.horizontal,
                 children: [
-                  _buildStatCard('Total Donations', totalDonations, Colors.blue),
+                  _buildStatCard('Total Donations Received', totalDonations, Colors.blue),
                   _buildStatCard('Approved', approved, Colors.green),
                   _buildStatCard('Rejected', rejected, Colors.red),
                   _buildStatCard('Pending', pending, Colors.orange),
@@ -222,10 +220,7 @@ class _DonationStatisticsPageState extends State<DonationStatisticsPage> {
                 ],
               ),
             ),
-
             const SizedBox(height: 20),
-
-            // Search bar for donation item
             TextField(
               controller: searchController,
               decoration: const InputDecoration(
@@ -235,10 +230,7 @@ class _DonationStatisticsPageState extends State<DonationStatisticsPage> {
               ),
               onChanged: _onSearchChanged,
             ),
-
             const SizedBox(height: 20),
-
-            // Show list of item counts filtered by search
             Expanded(
               child: itemCounts.isEmpty
                   ? Center(child: loading ? const CircularProgressIndicator() : const Text('No donations found'))

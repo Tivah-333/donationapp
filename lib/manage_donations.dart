@@ -30,19 +30,24 @@ class ManageDonations extends StatelessWidget {
               final doc = docs[index];
               final data = doc.data() as Map<String, dynamic>;
 
+              final title = data['title'] ?? 'No title';
+              final category = data['category'] ?? 'Unknown';
+              final status = data['status'] ?? 'N/A';
               final lastEdited = data['lastEditedAt'] != null
                   ? DateFormat('MMM d, h:mm a').format((data['lastEditedAt'] as Timestamp).toDate())
                   : null;
+              final lastEditedBy = data['lastEditedBy'];
 
               return Card(
                 child: ListTile(
-                  title: Text(data['item']),
+                  title: Text(title),
                   subtitle: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text('Category: ${data['category']}'),
-                      if (data['lastEditedBy'] != null && lastEdited != null)
-                        Text('Last edited by ${data['lastEditedBy']} on $lastEdited',
+                      Text('Category: $category'),
+                      Text('Status: $status'),
+                      if (lastEditedBy != null && lastEdited != null)
+                        Text('Last edited by $lastEditedBy on $lastEdited',
                             style: const TextStyle(fontSize: 12, color: Colors.grey)),
                     ],
                   ),
@@ -51,7 +56,7 @@ class ManageDonations extends StatelessWidget {
                     children: [
                       IconButton(
                         icon: const Icon(Icons.edit, color: Colors.blue),
-                        onPressed: () => _editDonation(context, doc.id, data['item']),
+                        onPressed: () => _editDonation(context, doc.id, title),
                       ),
                       IconButton(
                         icon: const Icon(Icons.delete, color: Colors.red),
@@ -74,10 +79,10 @@ class ManageDonations extends StatelessWidget {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Edit Donation Name'),
+        title: const Text('Edit Donation Title'),
         content: TextField(
           controller: controller,
-          decoration: const InputDecoration(labelText: 'New name'),
+          decoration: const InputDecoration(labelText: 'New title'),
         ),
         actions: [
           TextButton(
@@ -90,7 +95,7 @@ class ManageDonations extends StatelessWidget {
               final newName = controller.text.trim();
               if (newName.isNotEmpty) {
                 await FirebaseFirestore.instance.collection('donations').doc(docId).update({
-                  'item': newName,
+                  'title': newName,
                   'lastEditedBy': 'admin',
                   'lastEditedAt': FieldValue.serverTimestamp(),
                 });
