@@ -1,5 +1,5 @@
 const express = require('express');
-const admin = require('firebase-admin');
+const admin = require('../firebaseAdmin');
 const { authenticate, restrictToRole } = require('../middleware/auth');
 
 const router = express.Router();
@@ -28,6 +28,7 @@ router.get('/', async (req, res) => {
     const donations = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
     res.json(donations);
   } catch (error) {
+    console.error('Error fetching donations:', error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -35,7 +36,7 @@ router.get('/', async (req, res) => {
 // POST /api/donations - Donors or Organizations can create donation requests
 router.post('/', async (req, res) => {
   try {
-    const { item, category, quantity, deliveryOption, description, locationName, locationCoords, location } = req.body;
+    const { item, category, quantity, deliveryOption, description, locationName, locationCoords, location, imageUrl } = req.body;
 
     const donation = {
       item: item || null,
@@ -46,7 +47,7 @@ router.post('/', async (req, res) => {
       locationName: locationName || 'Unknown',
       locationCoords: locationCoords ? new admin.firestore.GeoPoint(locationCoords.latitude, locationCoords.longitude) : null,
       location: location ? new admin.firestore.GeoPoint(location.latitude, location.longitude) : null,
-      imageUrl: req.body.imageUrl || null,
+      imageUrl: imageUrl || null,
       timestamp: admin.firestore.FieldValue.serverTimestamp(),
       status: 'pending',
     };
@@ -59,30 +60,44 @@ router.post('/', async (req, res) => {
 
     const docRef = await db.collection('donations').add(donation);
 
-    // ✅ Add Firestore notification here
-    await db.collection('notifications').add({
-      title: `New Donation from ${req.user.email}`,
-      message: `${req.user.email} donated ${item} (${category}) - Quantity: ${donation.quantity} - ${new Date().toLocaleDateString()} at ${new Date().toLocaleTimeString()}`,
-      type: 'donation',
-      timestamp: admin.firestore.FieldValue.serverTimestamp(),
-      read: false,
-      starred: false,
-      donorEmail: req.user.email,
-      donationId: docRef.id,
-    });
+    // Notify admins
+    const adminUsers = await db.collection('users').where('role', '==', 'Administrator').get();
+    const adminFcmTokens = adminUsers.docs
+      .filter(doc => doc.data().notificationsEnabled && doc.data().fcmToken)
+      .map(doc => doc.data().fcmToken);
 
-    if (req.user.role === 'Organization') {
-      await admin.messaging().send({
-        topic: 'admin_notifications',
+    if (adminFcmTokens.length > 0) {
+      const message = {
         notification: {
           title: 'New Donation Request',
-          body: `Organization ${req.user.email} created a donation request for ${item}.`,
+          body: `${req.user.email} created a donation request for ${item} (${category}).`,
         },
-      });
+        tokens: adminFcmTokens,
+      };
+
+      await admin.messaging().sendMulticast(message);
+
+      // Store notification for each admin
+      for (const admin of adminUsers.docs) {
+        if (admin.data().notificationsEnabled && admin.data().fcmToken) {
+          await db.collection('notifications').add({
+            recipientId: admin.id,
+            title: 'New Donation Request',
+            message: `${req.user.email} donated ${item} (${category}) - Quantity: ${donation.quantity}`,
+            type: 'donation_request',
+            timestamp: admin.firestore.FieldValue.serverTimestamp(),
+            read: false,
+            starred: false,
+            donorEmail: req.user.email,
+            donationId: docRef.id,
+          });
+        }
+      }
     }
 
     res.json({ id: docRef.id, message: 'Donation created' });
   } catch (error) {
+    console.error('Error creating donation:', error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -113,6 +128,7 @@ router.put('/:id', async (req, res) => {
     await docRef.update(updates);
     res.json({ message: 'Donation updated successfully' });
   } catch (error) {
+    console.error('Error updating donation:', error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -139,6 +155,7 @@ router.delete('/:id', async (req, res) => {
     await docRef.delete();
     res.json({ message: 'Donation deleted successfully' });
   } catch (error) {
+    console.error('Error deleting donation:', error);
     res.status(500).json({ error: error.message });
   }
 });

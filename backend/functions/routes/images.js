@@ -1,5 +1,5 @@
 const express = require('express');
-const admin = require('firebase-admin');
+const admin = require('../firebaseAdmin');
 const { Storage } = require('@google-cloud/storage');
 const { v4: uuidv4 } = require('uuid');
 const { authenticate } = require('../middleware/auth');

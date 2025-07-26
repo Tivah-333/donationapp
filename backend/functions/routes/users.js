@@ -1,5 +1,5 @@
 const express = require('express');
-const admin = require('firebase-admin');
+const admin = require('../firebaseAdmin');
 const { Storage } = require('@google-cloud/storage');
 const { v4: uuidv4 } = require('uuid');
 const { authenticate, restrictToRole } = require('../middleware/auth');
@@ -27,6 +27,7 @@ router.get('/:id', async (req, res) => {
 
     res.json(userDoc.data());
   } catch (error) {
+    console.error('Error fetching user profile:', error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -36,8 +37,16 @@ router.post('/', async (req, res) => {
   try {
     const { uid, email, role } = req.body;
 
+    if (!uid || !email || !role) {
+      return res.status(400).json({ error: 'UID, email, and role are required' });
+    }
+
     if (req.user.uid !== uid) {
       return res.status(403).json({ error: 'Forbidden: Can only create own user' });
+    }
+
+    if (!['Donor', 'Organization', 'Administrator'].includes(role)) {
+      return res.status(400).json({ error: 'Invalid role' });
     }
 
     const userData = {
@@ -52,17 +61,42 @@ router.post('/', async (req, res) => {
     await db.collection('users').doc(uid).set(userData);
 
     if (role === 'Organization') {
-      await admin.messaging().send({
-        topic: 'admin_notifications',
-        notification: {
-          title: 'New Organization Registration',
-          body: `Organization ${email} has registered and is pending approval.`,
-        },
-      });
+      const adminUsers = await db.collection('users').where('role', '==', 'Administrator').get();
+      const adminFcmTokens = adminUsers.docs
+        .filter(doc => doc.data().notificationsEnabled && doc.data().fcmToken)
+        .map(doc => doc.data().fcmToken);
+
+      if (adminFcmTokens.length > 0) {
+        const message = {
+          notification: {
+            title: 'New Organization Registration',
+            body: `Organization ${email} has registered and is pending approval.`,
+          },
+          tokens: adminFcmTokens,
+        };
+
+        await admin.messaging().sendMulticast(message);
+
+        // Store notification for each admin
+        for (const admin of adminUsers.docs) {
+          if (admin.data().notificationsEnabled && doc.data().fcmToken) {
+            await db.collection('notifications').add({
+              recipientId: admin.id,
+              title: 'New Organization Registration',
+              message: `Organization ${email} has registered and is pending approval.`,
+              type: 'user_registration',
+              timestamp: admin.firestore.Timestamp.now(),
+              read: false,
+              starred: false,
+            });
+          }
+        }
+      }
     }
 
-    res.status(200).json({ message: 'User created successfully' });
+    res.status(200).json({ id: uid, ...userData, message: 'User created successfully' });
   } catch (error) {
+    console.error('Error creating user:', error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -80,9 +114,19 @@ router.put('/:id', async (req, res) => {
       updates.location = new admin.firestore.GeoPoint(updates.location.latitude, updates.location.longitude);
     }
 
+    if (updates.status && !['pending', 'approved', 'rejected'].includes(updates.status)) {
+      return res.status(400).json({ error: 'Invalid status. Must be pending, approved, or rejected' });
+    }
+
+    if (updates.role && !['Donor', 'Organization', 'Administrator'].includes(updates.role)) {
+      return res.status(400).json({ error: 'Invalid role' });
+    }
+
+    updates.updatedAt = admin.firestore.Timestamp.now();
     await db.collection('users').doc(userId).update(updates);
     res.json({ message: 'Profile updated successfully' });
   } catch (error) {
+    console.error('Error updating user profile:', error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -95,6 +139,7 @@ router.delete('/:id', restrictToRole('Administrator'), async (req, res) => {
     await admin.auth().deleteUser(userId);
     res.json({ message: 'User deleted successfully' });
   } catch (error) {
+    console.error('Error deleting user:', error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -129,53 +174,7 @@ router.post('/:id/profile-picture', async (req, res) => {
     await db.collection('users').doc(userId).update({ profileImageUrl: url });
     res.json({ profileImageUrl: url });
   } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// ✅ POST /api/support/issues - Submit problem report with full and short message
-router.post('/issues', async (req, res) => {
-  try {
-    const { description, imageUrl, timestamp } = req.body;
-
-    if (!description) {
-      return res.status(400).json({ error: 'Description is required' });
-    }
-
-    const user = await db.collection('users').doc(req.user.uid).get();
-    const userData = user.data();
-
-    const issue = {
-      fullMessage: description,  // ✅ full message
-      shortMessage: `Problem reported by ${req.user.email}`,  // ✅ short summary
-      imageUrl: imageUrl || null,
-      senderEmail: req.user.email,
-      senderId: req.user.uid,
-      senderRole: userData?.role?.toLowerCase() || 'unknown',
-      status: 'resolved',
-      read: true,
-      showDetails: true,
-      timestamp: timestamp
-        ? admin.firestore.Timestamp.fromDate(new Date(timestamp))
-        : admin.firestore.Timestamp.now(),
-      type: 'issue_report',
-      title: userData?.role === 'Donor'
-        ? 'New Issue Report from Donor'
-        : 'New Issue Report',
-    };
-
-    const notificationRef = await db.collection('notifications').add(issue);
-
-    await admin.messaging().send({
-      topic: 'admin_notifications',
-      notification: {
-        title: 'New Problem Report',
-        body: `Problem reported by ${req.user.email}: ${description.substring(0, 50)}...`,
-      },
-    });
-
-    res.json({ message: 'Problem reported successfully', id: notificationRef.id });
-  } catch (error) {
+    console.error('Error uploading profile picture:', error);
     res.status(500).json({ error: error.message });
   }
 });

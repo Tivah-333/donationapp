@@ -1,8 +1,9 @@
 const express = require('express');
-const admin = require('firebase-admin');
+const admin = require('../firebaseAdmin');
 const { authenticate } = require('../middleware/auth');
 
 const router = express.Router();
+const db = admin.firestore();
 
 // Apply authentication middleware
 router.use(authenticate);
@@ -11,7 +12,6 @@ router.use(authenticate);
 router.get('/', async (req, res) => {
   try {
     const { category, fromDate, toDate } = req.query;
-    const db = admin.firestore();
     const usersSnapshot = await db.collection('users').get();
     const donationsSnapshot = await db.collection('donations')
       .orderBy('timestamp', 'desc')

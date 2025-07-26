@@ -1,4 +1,4 @@
-const admin = require('firebase-admin');
+const admin = require('../firebaseAdmin');
 
 // Middleware to verify Firebase ID token and load user role from Firestore
 const authenticate = async (req, res, next) => {
