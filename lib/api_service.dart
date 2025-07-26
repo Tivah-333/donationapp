@@ -3,7 +3,7 @@ import 'package:http/http.dart' as http;
 import 'package:firebase_auth/firebase_auth.dart'; // To get the ID token
 
 class ApiService {
-  final String _baseUrl = "https://your-api-base-url.cloudfunctions.net/api"; // <-- REPLACE WITH YOUR ACTUAL BASE URL
+  final String _baseUrl = "https://us-central1-donationapp-3c.cloudfunctions.net/api"; // <-- REPLACE WITH YOUR ACTUAL BASE URL
   final FirebaseAuth _firebaseAuth = FirebaseAuth.instance;
 
   // Helper to get the Firebase ID Token for authentication
