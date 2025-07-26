@@ -3,6 +3,8 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:location/location.dart' as loc;
 import 'package:geocoding/geocoding.dart';
+import 'package:http/http.dart' as http;
+import 'dart:convert';
 
 class CreateDonationRequestPage extends StatefulWidget {
   const CreateDonationRequestPage({super.key});
@@ -13,15 +15,13 @@ class CreateDonationRequestPage extends StatefulWidget {
 
 class _CreateDonationRequestPageState extends State<CreateDonationRequestPage> {
   final _formKey = GlobalKey<FormState>();
-
+  final String apiUrl = 'http://127.0.0.1:5001/donationapp-3c/us-central1/api';
   final TextEditingController _titleController = TextEditingController();
   final TextEditingController _descriptionController = TextEditingController();
   final TextEditingController _quantityController = TextEditingController();
-
   String? _selectedCategory = 'Clothes';
   String? _detectedLocation;
   bool _isSubmitting = false;
-
   final List<String> _categories = [
     'Clothes',
     'Food Supplies',
@@ -142,12 +142,11 @@ class _CreateDonationRequestPageState extends State<CreateDonationRequestPage> {
     if (!_formKey.currentState!.validate()) return;
 
     final newRequest = {
-      'title': _titleController.text.trim(),
+      'item': _titleController.text.trim(),
       'description': _descriptionController.text.trim(),
       'quantity': int.parse(_quantityController.text),
       'category': _selectedCategory,
-      'location': _detectedLocation,
-      'timestamp': Timestamp.now(),
+      'locationName': _detectedLocation,
     };
 
     setState(() {
@@ -171,31 +170,25 @@ class _CreateDonationRequestPageState extends State<CreateDonationRequestPage> {
     setState(() => _isSubmitting = true);
     final user = FirebaseAuth.instance.currentUser;
     try {
-      final batch = FirebaseFirestore.instance.batch();
-      final requestsCollection = FirebaseFirestore.instance.collection('donation_requests');
-      final notificationsCollection = FirebaseFirestore.instance.collection('admin_notifications'); // <-- updated here
-
+      final idToken = await user?.getIdToken();
       for (var req in _pendingRequests) {
-        final docRef = requestsCollection.doc();
-        batch.set(docRef, {
-          ...req,
-          'organizationId': user?.uid,
-          'status': 'pending',
-        });
-
-        // Admin notification for each request, with type = 'approval'
-        final notifDocRef = notificationsCollection.doc();
-        batch.set(notifDocRef, {
-          'userId': 'admin', // or your admin user id
-          'type': 'approval', // important for your admin page tabs
-          'title': 'New Donation Request',
-          'message': 'An organization has submitted a donation request: ${req['title']}',
-          'timestamp': Timestamp.now(),
-          'read': false,
-        });
+        final response = await http.post(
+          Uri.parse('$apiUrl/donations'),
+          headers: {
+            'Authorization': 'Bearer $idToken',
+            'Content-Type': 'application/json',
+          },
+          body: jsonEncode({
+            ...req,
+            'orgId': user?.uid,
+            'status': 'pending',
+            'timestamp': DateTime.now().toIso8601String(),
+          }),
+        );
+        if (response.statusCode != 200) {
+          throw Exception('Failed to submit request: ${response.body}');
+        }
       }
-
-      await batch.commit();
 
       setState(() {
         _pendingRequests.clear();
@@ -210,7 +203,9 @@ class _CreateDonationRequestPageState extends State<CreateDonationRequestPage> {
       }
     } catch (e) {
       setState(() => _isSubmitting = false);
-      _showError('Failed to submit requests. Please try again.');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error: $e')),
+      );
     }
   }
 
@@ -218,12 +213,6 @@ class _CreateDonationRequestPageState extends State<CreateDonationRequestPage> {
     setState(() {
       _pendingRequests.removeAt(index);
     });
-  }
-
-  void _showError(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message)),
-    );
   }
 
   @override
@@ -337,7 +326,7 @@ class _CreateDonationRequestPageState extends State<CreateDonationRequestPage> {
                         itemBuilder: (context, index) {
                           final req = _pendingRequests[index];
                           return ListTile(
-                            title: Text(req['title'] ?? ''),
+                            title: Text(req['item'] ?? ''),
                             subtitle:
                             Text('Quantity: ${req['quantity']} | Category: ${req['category']}'),
                             trailing: IconButton(

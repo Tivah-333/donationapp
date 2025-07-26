@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:http/http.dart' as http;
+import 'dart:convert';
 
 class DonorContactSupportPage extends StatefulWidget {
   const DonorContactSupportPage({super.key});
@@ -9,10 +12,11 @@ class DonorContactSupportPage extends StatefulWidget {
 
 class _DonorContactSupportPageState extends State<DonorContactSupportPage> {
   final _formKey = GlobalKey<FormState>();
-
+  final String apiUrl = 'http://127.0.0.1:5001/donationapp-3c/us-central1/api';
   final TextEditingController _nameController = TextEditingController();
   final TextEditingController _emailController = TextEditingController();
   final TextEditingController _messageController = TextEditingController();
+  bool _isSubmitting = false;
 
   @override
   void dispose() {
@@ -23,16 +27,30 @@ class _DonorContactSupportPageState extends State<DonorContactSupportPage> {
   }
 
   Future<void> _submitSupportRequest() async {
-    if (_formKey.currentState!.validate()) {
-      try {
-        // Simulate sending message to backend (e.g. Firestore, Email, etc.)
-        await Future.delayed(const Duration(seconds: 1));
+    if (!_formKey.currentState!.validate()) return;
 
+    setState(() => _isSubmitting = true);
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) throw Exception('User not authenticated');
+      final idToken = await user.getIdToken();
+      final response = await http.post(
+        Uri.parse('$apiUrl/support'),
+        headers: {
+          'Authorization': 'Bearer $idToken',
+          'Content-Type': 'application/json',
+        },
+        body: jsonEncode({
+          'name': _nameController.text.trim(),
+          'email': _emailController.text.trim(),
+          'message': _messageController.text.trim(),
+          'timestamp': DateTime.now().toIso8601String(),
+        }),
+      );
+      if (response.statusCode == 200) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text(
-                "Thank you! We’ve received your message and will get back to you shortly."
-            ),
+            content: Text('Thank you! We’ve received your message and will get back to you shortly.'),
             backgroundColor: Colors.green,
           ),
         );
@@ -40,17 +58,18 @@ class _DonorContactSupportPageState extends State<DonorContactSupportPage> {
         _nameController.clear();
         _emailController.clear();
         _messageController.clear();
-
-      } catch (e) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-                'Failed to send message. Please check your internet connection and try again.'
-            ),
-            backgroundColor: Colors.red,
-          ),
-        );
+      } else {
+        throw Exception('Failed to send support request: ${response.body}');
       }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    } finally {
+      setState(() => _isSubmitting = false);
     }
   }
 
@@ -108,8 +127,10 @@ class _DonorContactSupportPageState extends State<DonorContactSupportPage> {
               ),
               const SizedBox(height: 24),
               ElevatedButton(
-                onPressed: _submitSupportRequest,
-                child: const Text('Send'),
+                onPressed: _isSubmitting ? null : _submitSupportRequest,
+                child: _isSubmitting
+                    ? const CircularProgressIndicator(color: Colors.white)
+                    : const Text('Send'),
                 style: ElevatedButton.styleFrom(
 
                   padding: const EdgeInsets.symmetric(vertical: 14),

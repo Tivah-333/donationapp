@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:http/http.dart' as http;
+import 'dart:convert';
 
 class OrgContactSupportPage extends StatefulWidget {
   const OrgContactSupportPage({super.key});
@@ -9,10 +12,11 @@ class OrgContactSupportPage extends StatefulWidget {
 
 class _OrgContactSupportPageState extends State<OrgContactSupportPage> {
   final _formKey = GlobalKey<FormState>();
-
+  final String apiUrl = 'http://127.0.0.1:5001/donationapp-3c/us-central1/api';
   final TextEditingController _nameController = TextEditingController();
   final TextEditingController _emailController = TextEditingController();
   final TextEditingController _messageController = TextEditingController();
+  bool _isSubmitting = false;
 
   @override
   void dispose() {
@@ -22,17 +26,49 @@ class _OrgContactSupportPageState extends State<OrgContactSupportPage> {
     super.dispose();
   }
 
-  void _submitSupportRequest() {
-    if (_formKey.currentState!.validate()) {
-      // TODO: Implement submission logic (e.g., send to Firestore or email)
+  Future<void> _submitSupportRequest() async {
+    if (!_formKey.currentState!.validate()) return;
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Support request sent successfully!')),
+    setState(() => _isSubmitting = true);
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) throw Exception('User not authenticated');
+      final idToken = await user.getIdToken();
+      final response = await http.post(
+        Uri.parse('$apiUrl/support'),
+        headers: {
+          'Authorization': 'Bearer $idToken',
+          'Content-Type': 'application/json',
+        },
+        body: jsonEncode({
+          'name': _nameController.text.trim(),
+          'email': _emailController.text.trim(),
+          'message': _messageController.text.trim(),
+          'timestamp': DateTime.now().toIso8601String(),
+        }),
       );
-
-      _nameController.clear();
-      _emailController.clear();
-      _messageController.clear();
+      if (response.statusCode == 200) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Support request sent successfully!'),
+            backgroundColor: Colors.green,
+          ),
+        );
+        _nameController.clear();
+        _emailController.clear();
+        _messageController.clear();
+      } else {
+        throw Exception('Failed to send support request: ${response.body}');
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    } finally {
+      setState(() => _isSubmitting = false);
     }
   }
 
@@ -90,8 +126,10 @@ class _OrgContactSupportPageState extends State<OrgContactSupportPage> {
               ),
               const SizedBox(height: 24),
               ElevatedButton(
-                onPressed: _submitSupportRequest,
-                child: const Text('Send'),
+                onPressed: _isSubmitting ? null : _submitSupportRequest,
+                child: _isSubmitting
+                    ? const CircularProgressIndicator(color: Colors.white)
+                    : const Text('Send'),
                 style: ElevatedButton.styleFrom(
                   padding: const EdgeInsets.symmetric(vertical: 14),
                 ),

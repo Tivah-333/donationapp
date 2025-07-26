@@ -3,7 +3,8 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_storage/firebase_storage.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:http/http.dart' as http;
+import 'dart:convert';
 
 class DonorReportProblemPage extends StatefulWidget {
   const DonorReportProblemPage({super.key});
@@ -14,6 +15,7 @@ class DonorReportProblemPage extends StatefulWidget {
 
 class _DonorReportProblemPageState extends State<DonorReportProblemPage> {
   final _formKey = GlobalKey<FormState>();
+  final String apiUrl = 'http://127.0.0.1:5001/donationapp-3c/us-central1/api';
   final TextEditingController _problemController = TextEditingController();
   File? _imageFile;
   bool _isSubmitting = false;
@@ -40,7 +42,7 @@ class _DonorReportProblemPageState extends State<DonorReportProblemPage> {
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Failed to pick image: ${e.toString()}'),
+          content: Text('Failed to pick image: $e'),
           backgroundColor: Colors.red,
         ),
       );
@@ -48,93 +50,58 @@ class _DonorReportProblemPageState extends State<DonorReportProblemPage> {
   }
 
   Future<void> _submitProblem() async {
-    if (_formKey.currentState!.validate()) {
-      try {
-        setState(() {
-          _isSubmitting = true;
-        });
+    if (!_formKey.currentState!.validate()) return;
 
-        final user = FirebaseAuth.instance.currentUser;
-        if (user == null) throw Exception('User not logged in');
+    setState(() => _isSubmitting = true);
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) throw Exception('User not logged in');
+      String? imageUrl;
+      if (_imageFile != null) {
+        final storageRef = FirebaseStorage.instance
+            .ref()
+            .child('problem_images')
+            .child('${DateTime.now().millisecondsSinceEpoch}.jpg');
+        await storageRef.putFile(_imageFile!);
+        imageUrl = await storageRef.getDownloadURL();
+      }
 
-        String? imageUrl;
-
-        if (_imageFile != null) {
-          final storageRef = FirebaseStorage.instance
-              .ref()
-              .child('problem_images')
-              .child('${DateTime.now().millisecondsSinceEpoch}.jpg');
-
-          await storageRef.putFile(_imageFile!);
-          imageUrl = await storageRef.getDownloadURL();
-        }
-
-        // Create problem document with explicit status
-        final problemDoc = await FirebaseFirestore.instance
-            .collection('problems')
-            .add({
-          'userId': user.uid,
-          'userEmail': user.email ?? 'Unknown',
-          'userType': 'donor',
-          'message': _problemController.text.trim(),
+      final idToken = await user.getIdToken();
+      final response = await http.post(
+        Uri.parse('$apiUrl/support/issues'),
+        headers: {
+          'Authorization': 'Bearer $idToken',
+          'Content-Type': 'application/json',
+        },
+        body: jsonEncode({
+          'description': _problemController.text.trim(),
           'imageUrl': imageUrl,
-          'response': null,
-          'isResponded': false,
-          'read': false,
-          'timestamp': FieldValue.serverTimestamp(),
-          'status': 'pending', // Explicit status field
-        });
+          'timestamp': DateTime.now().toIso8601String(),
+        }),
+      );
 
-        // Create admin notification with minimal initial info
-        await FirebaseFirestore.instance
-            .collection('admin_notifications')
-            .doc(problemDoc.id)
-            .set({
-          'type': 'issue_report',
-          'title': 'New Issue Report from Donor',
-          'shortMessage': 'Problem reported by ${user.email ?? "a donor"}', // Generic initial message
-          'fullMessage': _problemController.text.trim(), // Hidden until expanded
-          'problemId': problemDoc.id,
-          'senderId': user.uid,
-          'senderEmail': user.email ?? 'Unknown',
-          'senderRole': 'donor',
-          'imageUrl': imageUrl,
-          'read': false,
-          'starred': false,
-          'timestamp': FieldValue.serverTimestamp(),
-          'status': 'unresolved', // Clear status for admin
-          'showDetails': false, // Hide problem details initially
-          'organizationEmail': '', // Will be populated if from organization
-        });
-
-        if (!mounted) return;
-
+      if (response.statusCode == 200) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text('Problem reported successfully! Admin notified.'),
             backgroundColor: Colors.green,
           ),
         );
-
-        // Clear form and pop
         _problemController.clear();
         setState(() => _imageFile = null);
         Navigator.of(context).pop();
-      } catch (e) {
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error: ${e.toString()}'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      } finally {
-        if (mounted) {
-          setState(() {
-            _isSubmitting = false;
-          });
-        }
+      } else {
+        throw Exception('Failed to submit problem: ${response.body}');
       }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    } finally {
+      setState(() => _isSubmitting = false);
     }
   }
 

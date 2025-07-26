@@ -1,18 +1,21 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
+import 'dart:convert';
 
 class IssueReportDetailsPage extends StatefulWidget {
   final String problemDocId;
 
-  const IssueReportDetailsPage({Key? key, required this.problemDocId})
-      : super(key: key);
+  const IssueReportDetailsPage({Key? key, required this.problemDocId}) : super(key: key);
 
   @override
   State<IssueReportDetailsPage> createState() => _IssueReportDetailsPageState();
 }
 
 class _IssueReportDetailsPageState extends State<IssueReportDetailsPage> {
+  final String apiUrl = 'http://127.0.0.1:5001/donationapp-3c/us-central1/api';
   final TextEditingController _responseController = TextEditingController();
   bool _isLoading = true;
   bool _isSubmitting = false;
@@ -27,12 +30,12 @@ class _IssueReportDetailsPageState extends State<IssueReportDetailsPage> {
   Future<void> _loadProblemDetails() async {
     try {
       final doc = await FirebaseFirestore.instance
-          .collection('problems')
+          .collection('issues')
           .doc(widget.problemDocId)
           .get();
 
       if (!doc.exists) {
-        _showError('Problem report not found.');
+        _showError('Issue report not found.');
         return;
       }
 
@@ -44,25 +47,30 @@ class _IssueReportDetailsPageState extends State<IssueReportDetailsPage> {
 
       await _markNotificationAsRead();
     } catch (e) {
-      _showError('Failed to load problem: ${e.toString()}');
+      _showError('Failed to load issue: $e');
     }
   }
 
   Future<void> _markNotificationAsRead() async {
     try {
-      final notifications = await FirebaseFirestore.instance
-          .collection('admin_notifications')
-          .where('problemId', isEqualTo: widget.problemDocId)
-          .get();
-
-      final batch = FirebaseFirestore.instance.batch();
-      for (var doc in notifications.docs) {
-        batch.update(doc.reference, {
-          'read': true,
-          'status': 'resolved',
-        });
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) return;
+      final idToken = await user.getIdToken();
+      final response = await http.get(
+        Uri.parse('$apiUrl/notifications?recipientId=${user.uid}&issueId=${widget.problemDocId}'),
+        headers: {'Authorization': 'Bearer $idToken'},
+      );
+      if (response.statusCode == 200) {
+        final notifications = jsonDecode(response.body) as List;
+        final batch = FirebaseFirestore.instance.batch();
+        for (var notif in notifications) {
+          batch.update(
+            FirebaseFirestore.instance.collection('notifications').doc(notif['id']),
+            {'read': true},
+          );
+        }
+        await batch.commit();
       }
-      await batch.commit();
     } catch (e) {
       debugPrint('Error marking notification as read: $e');
     }
@@ -77,46 +85,31 @@ class _IssueReportDetailsPageState extends State<IssueReportDetailsPage> {
     setState(() => _isSubmitting = true);
 
     try {
-      final response = _responseController.text.trim();
-      final now = FieldValue.serverTimestamp();
-
-      await FirebaseFirestore.instance
-          .collection('problems')
-          .doc(widget.problemDocId)
-          .update({
-        'response': response,
-        'isResponded': true,
-        'responseTimestamp': now,
-        'status': 'resolved',
-      });
-
-      await _updateRelatedNotifications(response, now);
-
-      _showSuccess('Response submitted successfully');
-      if (mounted) Navigator.pop(context);
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) throw Exception('User not authenticated');
+      final idToken = await user.getIdToken();
+      final response = await http.put(
+        Uri.parse('$apiUrl/support/issues/${widget.problemDocId}/respond'),
+        headers: {
+          'Authorization': 'Bearer $idToken',
+          'Content-Type': 'application/json',
+        },
+        body: jsonEncode({
+          'response': _responseController.text.trim(),
+          'status': 'resolved',
+        }),
+      );
+      if (response.statusCode == 200) {
+        _showSuccess('Response submitted successfully');
+        if (mounted) Navigator.pop(context);
+      } else {
+        throw Exception('Failed to submit response: ${response.body}');
+      }
     } catch (e) {
-      _showError('Failed to submit response: ${e.toString()}');
+      _showError('Failed to submit response: $e');
     } finally {
       if (mounted) setState(() => _isSubmitting = false);
     }
-  }
-
-  Future<void> _updateRelatedNotifications(String response, dynamic timestamp) async {
-    final notifications = await FirebaseFirestore.instance
-        .collection('admin_notifications')
-        .where('problemId', isEqualTo: widget.problemDocId)
-        .get();
-
-    final batch = FirebaseFirestore.instance.batch();
-    for (var doc in notifications.docs) {
-      batch.update(doc.reference, {
-        'response': response,
-        'responseTimestamp': timestamp,
-        'status': 'resolved',
-        'read': true,
-      });
-    }
-    await batch.commit();
   }
 
   void _showError(String message) {
@@ -156,8 +149,9 @@ class _IssueReportDetailsPageState extends State<IssueReportDetailsPage> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Issue Report Details'),
+        backgroundColor: Colors.deepPurple,
         actions: [
-          if (_problemData?['isResponded'] ?? false)
+          if (_problemData?['status'] == 'resolved')
             const Icon(Icons.check_circle, color: Colors.green),
         ],
       ),
@@ -174,7 +168,7 @@ class _IssueReportDetailsPageState extends State<IssueReportDetailsPage> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Problem reported by ${_problemData!['userEmail'] ?? 'Unknown'}',
+                  'Issue reported by ${_problemData!['email'] ?? 'Unknown'}',
                   style: const TextStyle(
                     fontWeight: FontWeight.bold,
                     fontSize: 18,
@@ -182,7 +176,7 @@ class _IssueReportDetailsPageState extends State<IssueReportDetailsPage> {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  'Role: ${(_problemData!['userType'] ?? 'user').toString().toUpperCase()}',
+                  'Role: ${(_problemData!['role'] ?? 'user').toString().toUpperCase()}',
                   style: TextStyle(color: Colors.grey[600]),
                 ),
                 const SizedBox(height: 4),
@@ -193,7 +187,7 @@ class _IssueReportDetailsPageState extends State<IssueReportDetailsPage> {
               ],
             ),
             const SizedBox(height: 20),
-            if ((_problemData!['message'] ?? '').isNotEmpty) ...[
+            if ((_problemData!['description'] ?? '').isNotEmpty) ...[
               const Text(
                 'ISSUE DETAILS:',
                 style: TextStyle(
@@ -204,7 +198,7 @@ class _IssueReportDetailsPageState extends State<IssueReportDetailsPage> {
               ),
               const SizedBox(height: 8),
               Text(
-                _problemData!['message']!,
+                _problemData!['description']!,
                 style: const TextStyle(fontSize: 16),
               ),
               const SizedBox(height: 20),
@@ -231,13 +225,13 @@ class _IssueReportDetailsPageState extends State<IssueReportDetailsPage> {
               ),
               const SizedBox(height: 8),
               Text(
-                'Responded on: ${_formatTimestamp(_problemData!['responseTimestamp'] as Timestamp?)}',
+                'Responded on: ${_formatTimestamp(_problemData!['updatedAt'] as Timestamp?)}',
                 style: TextStyle(color: Colors.grey[600]),
               ),
               const SizedBox(height: 20),
             ],
 
-            if (!(_problemData!['isResponded'] ?? false)) ...[
+            if (_problemData!['status'] != 'resolved') ...[
               const Text(
                 'YOUR RESPONSE:',
                 style: TextStyle(

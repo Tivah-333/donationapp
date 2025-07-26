@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
+import 'dart:convert';
 import 'IssueReportDetailsPage.dart';
 
 class AdminNotificationsPage extends StatefulWidget {
@@ -12,8 +15,7 @@ class AdminNotificationsPage extends StatefulWidget {
 
 class _AdminNotificationsPageState extends State<AdminNotificationsPage>
     with SingleTickerProviderStateMixin {
-  final CollectionReference notificationsRef =
-  FirebaseFirestore.instance.collection('admin_notifications');
+  final String apiUrl = 'http://127.0.0.1:5001/donationapp-3c/us-central1/api';
 
   late TabController _tabController;
 
@@ -26,10 +28,10 @@ class _AdminNotificationsPageState extends State<AdminNotificationsPage>
   ];
 
   final List<String> tabTypes = [
-    'approval',
+    'user_registration',
     'issue_report',
-    'support_message',
-    'donation',
+    'support_request',
+    'donation_request',
     'admin_activity',
   ];
 
@@ -54,21 +56,39 @@ class _AdminNotificationsPageState extends State<AdminNotificationsPage>
   }
 
   Future<void> _markCurrentTabAsRead() async {
-    final currentType = tabTypes[_tabController.index];
-    final snapshot = await notificationsRef
-        .where('type', isEqualTo: currentType)
-        .where('read', isEqualTo: false)
-        .get();
-
-    final batch = FirebaseFirestore.instance.batch();
-    for (var doc in snapshot.docs) {
-      batch.update(doc.reference, {'read': true});
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) return;
+      final idToken = await user.getIdToken();
+      final currentType = tabTypes[_tabController.index];
+      final response = await http.get(
+        Uri.parse('$apiUrl/notifications?recipientId=${user.uid}&type=$currentType&read=false'),
+        headers: {'Authorization': 'Bearer $idToken'},
+      );
+      if (response.statusCode == 200) {
+        final notifications = jsonDecode(response.body) as List;
+        final batch = FirebaseFirestore.instance.batch();
+        for (var notif in notifications) {
+          batch.update(
+            FirebaseFirestore.instance.collection('notifications').doc(notif['id']),
+            {'read': true},
+          );
+        }
+        await batch.commit();
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error marking notifications as read: $e')),
+      );
     }
-    await batch.commit();
   }
 
   Stream<int> _getUnreadCount(String type) {
-    return notificationsRef
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return Stream.value(0);
+    return FirebaseFirestore.instance
+        .collection('notifications')
+        .where('recipientId', isEqualTo: user.uid)
         .where('type', isEqualTo: type)
         .where('read', isEqualTo: false)
         .snapshots()
@@ -87,8 +107,7 @@ class _AdminNotificationsPageState extends State<AdminNotificationsPage>
             if (count > 0)
               Container(
                 margin: const EdgeInsets.only(left: 6),
-                padding:
-                const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                 decoration: BoxDecoration(
                   color: Colors.red,
                   borderRadius: BorderRadius.circular(10),
@@ -105,10 +124,109 @@ class _AdminNotificationsPageState extends State<AdminNotificationsPage>
   }
 
   Query _getQueryForTab(int index) {
-    final type = tabTypes[index];
-    return notificationsRef
-        .where('type', isEqualTo: type)
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return FirebaseFirestore.instance.collection('notifications').where('recipientId', isEqualTo: '');
+    return FirebaseFirestore.instance
+        .collection('notifications')
+        .where('recipientId', isEqualTo: user.uid)
+        .where('type', isEqualTo: tabTypes[index])
         .orderBy('timestamp', descending: true);
+  }
+
+  Future<void> _respondToNotification(String type, String docId, String recipientId) async {
+    final responseController = TextEditingController();
+    final statusOptions = type == 'support_request' || type == 'issue_report'
+        ? ['open', 'in_progress', 'resolved']
+        : type == 'donation_request'
+        ? ['pending', 'approved', 'rejected', 'completed']
+        : type == 'user_registration'
+        ? ['pending', 'approved', 'rejected']
+        : [];
+    String? selectedStatus;
+    final result = await showDialog<Map<String, String>>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(
+          type == 'support_request'
+              ? 'Respond to Support Request'
+              : type == 'issue_report'
+              ? 'Respond to Issue Report'
+              : type == 'donation_request'
+              ? 'Respond to Donation Request'
+              : 'Respond to Organization Registration',
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (type != 'user_registration')
+              TextField(
+                controller: responseController,
+                decoration: const InputDecoration(labelText: 'Response'),
+                maxLines: 3,
+              ),
+            if (statusOptions.isNotEmpty)
+              DropdownButtonFormField<String>(
+                hint: const Text('Select Status'),
+                value: selectedStatus,
+                items: statusOptions
+                    .map((status) => DropdownMenuItem<String>(
+                  value: status,
+                  child: Text(status),
+                ))
+                    .toList(),
+                onChanged: (value) => selectedStatus = value,
+              ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, {
+              'response': responseController.text.trim(),
+              'status': selectedStatus,
+            }),
+            child: const Text('Send'),
+          ),
+        ],
+      ),
+    );
+
+    if (result != null) {
+      try {
+        final user = FirebaseAuth.instance.currentUser;
+        if (user == null) throw Exception('User not authenticated');
+        final idToken = await user.getIdToken();
+        final endpoint = type == 'support_request'
+            ? '$apiUrl/support/$docId/respond'
+            : type == 'issue_report'
+            ? '$apiUrl/support/issues/$docId/respond'
+            : type == 'donation_request'
+            ? '$apiUrl/donations/$docId'
+            : '$apiUrl/users/$recipientId';
+        final response = await http.put(
+          Uri.parse(endpoint),
+          headers: {
+            'Authorization': 'Bearer $idToken',
+            'Content-Type': 'application/json',
+          },
+          body: jsonEncode(result),
+        );
+        if (response.statusCode == 200) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Response sent')),
+          );
+        } else {
+          throw Exception('Failed to send response: ${response.body}');
+        }
+      } catch (e) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: $e')),
+        );
+      }
+    }
   }
 
   @override
@@ -162,7 +280,7 @@ class _AdminNotificationsPageState extends State<AdminNotificationsPage>
               children: [
                 Icon(Icons.notifications_off, size: 48, color: Colors.grey),
                 SizedBox(height: 16),
-                Text('No notifications found', style: TextStyle(fontSize: 18)),
+                Text('No ${tabTitles[tabIndex].toLowerCase()} found', style: TextStyle(fontSize: 18)),
               ],
             ),
           );
@@ -185,49 +303,42 @@ class _AdminNotificationsPageState extends State<AdminNotificationsPage>
     final timestamp = data['timestamp'] as Timestamp?;
     final read = data['read'] ?? false;
     final starred = data['starred'] ?? false;
-    final problemId = data['problemId'];
-    final senderEmail = data['senderEmail'] ?? 'Unknown sender';
-    final status = data['status'] ?? 'unresolved';
-
-    // Use shortMessage and fullMessage for both organization and donor uniformly
-    final shortMessage = (data['shortMessage'] != null &&
-        data['shortMessage'].toString().trim().isNotEmpty)
-        ? data['shortMessage']
-        : 'Problem reported by $senderEmail';
-
-    final fullMessage = (data['fullMessage'] != null &&
-        data['fullMessage'].toString().trim().isNotEmpty)
-        ? data['fullMessage']
-        : (data['message'] != null && data['message'].toString().trim().isNotEmpty)
-        ? data['message']
-        : 'Issue details were not provided by $senderEmail.';
-
-    final showDetails = data['showDetails'] ?? false;
+    final senderEmail = data['senderEmail'] ?? data['donorEmail'] ?? 'Unknown sender';
+    final docId = data['issueId'] ?? data['donationId'] ?? data['recipientId'] ?? id;
+    final message = data['message'] ?? 'No details provided';
+    String status = '';
+    if (type == 'issue_report') {
+      status = data['status'] ?? 'open';
+    } else if (type == 'donation_request') {
+      status = data['status'] ?? 'pending';
+    } else if (type == 'user_registration') {
+      status = data['status'] ?? 'pending';
+    }
 
     Color statusColor = Colors.grey;
-    String statusText = 'Pending';
-
+    String statusText = '';
     if (type == 'issue_report') {
-      if (status == 'resolved') {
-        statusColor = Colors.green;
-        statusText = 'Resolved';
-      } else {
-        statusColor = Colors.orange;
-        statusText = 'Unresolved';
-      }
+      statusColor = status == 'resolved' ? Colors.green : status == 'in_progress' ? Colors.blue : Colors.orange;
+      statusText = status == 'resolved' ? 'Resolved' : status == 'in_progress' ? 'In Progress' : 'Open';
+    } else if (type == 'donation_request') {
+      statusColor = status == 'approved' ? Colors.green : status == 'rejected' ? Colors.red : status == 'completed' ? Colors.blue : Colors.orange;
+      statusText = status == 'approved' ? 'Approved' : status == 'rejected' ? 'Rejected' : status == 'completed' ? 'Completed' : 'Pending';
+    } else if (type == 'user_registration') {
+      statusColor = status == 'approved' ? Colors.green : status == 'rejected' ? Colors.red : Colors.orange;
+      statusText = status == 'approved' ? 'Approved' : status == 'rejected' ? 'Rejected' : 'Pending';
     }
 
     return Card(
       margin: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       color: read ? Colors.white : Colors.blue[50],
-      child: ExpansionTile(
+      child: ListTile(
         leading: _getIconForType(type, read),
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(senderEmail, style: TextStyle(fontWeight: FontWeight.bold)),
             SizedBox(height: 4),
-            Text(shortMessage),
+            Text(message),
           ],
         ),
         subtitle: Text(
@@ -237,7 +348,7 @@ class _AdminNotificationsPageState extends State<AdminNotificationsPage>
         trailing: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            if (type == 'issue_report')
+            if (status.isNotEmpty)
               Container(
                 padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                 decoration: BoxDecoration(
@@ -252,49 +363,21 @@ class _AdminNotificationsPageState extends State<AdminNotificationsPage>
             if (starred) Icon(Icons.star, color: Colors.amber),
           ],
         ),
-        initiallyExpanded: showDetails,
-        onExpansionChanged: (expanded) {
-          if (expanded && !read) {
-            notificationsRef.doc(id).update({'read': true});
-          }
-          notificationsRef.doc(id).update({'showDetails': expanded});
-        },
-        children: [
-          if (type == 'issue_report')
-            Padding(
-              padding: EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Text(
-                    'Issue Details:',
-                    style: TextStyle(fontWeight: FontWeight.bold),
-                  ),
-                  SizedBox(height: 8),
-                  Text(fullMessage),
-                  SizedBox(height: 16),
-                  Align(
-                    alignment: Alignment.centerRight,
-                    child: ElevatedButton(
-                      onPressed: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (context) =>
-                                IssueReportDetailsPage(problemDocId: problemId),
-                          ),
-                        );
-                      },
-                      child: Text('View Full Report'),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.grey,
-                      ),
-                    ),
-                  ),
-                ],
+        onTap: () {
+          if (type == 'issue_report') {
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => IssueReportDetailsPage(problemDocId: data['issueId']),
               ),
-            ),
-        ],
+            );
+          } else {
+            _respondToNotification(type, docId, data['recipientId'] ?? data['senderId']);
+            if (!read) {
+              FirebaseFirestore.instance.collection('notifications').doc(id).update({'read': true});
+            }
+          }
+        },
       ),
     );
   }
@@ -304,8 +387,12 @@ class _AdminNotificationsPageState extends State<AdminNotificationsPage>
     switch (type) {
       case 'issue_report':
         return Icon(Icons.report_problem, color: color);
-      case 'donation':
+      case 'donation_request':
         return Icon(Icons.volunteer_activism, color: color);
+      case 'support_request':
+        return Icon(Icons.support, color: color);
+      case 'user_registration':
+        return Icon(Icons.apartment, color: color);
       default:
         return Icon(Icons.notifications, color: color);
     }
@@ -316,4 +403,3 @@ class _AdminNotificationsPageState extends State<AdminNotificationsPage>
     return DateFormat('MMM d, y • h:mm a').format(date);
   }
 }
-

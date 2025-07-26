@@ -1,6 +1,5 @@
 // Keep your existing imports
 import 'package:flutter/material.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:location/location.dart' as loc;
 import 'package:http/http.dart' as http; // For HTTP requests
@@ -15,8 +14,8 @@ class MakeDonationPage extends StatefulWidget {
 
 class _MakeDonationPageState extends State<MakeDonationPage> {
   final _formKey = GlobalKey<FormState>();
-
-  List<Map<String, TextEditingController>> _items = [];
+  final String apiUrl = 'http://127.0.0.1:5001/donationapp-3c/us-central1/api';
+  List<Map<String, dynamic>> _items = [];
   String? _selectedDeliveryOption;
   String? _detectedDistrict;  // <-- only district saved here
   bool _isSubmitting = false;
@@ -150,14 +149,10 @@ class _MakeDonationPageState extends State<MakeDonationPage> {
         setState(() {
           _detectedDistrict = district;
         });
-
-        // Debug print
-        print('Detected district: $_detectedDistrict');
       } else {
         setState(() => _detectedDistrict = 'Unknown district');
       }
     } catch (e) {
-      print('Reverse geocode error: $e');
       setState(() => _detectedDistrict = 'Unknown district');
     }
   }
@@ -181,62 +176,46 @@ class _MakeDonationPageState extends State<MakeDonationPage> {
     try {
       final user = FirebaseAuth.instance.currentUser;
       if (user == null) throw Exception('User not logged in');
+      final idToken = await user.getIdToken();
+      final response = await http.post(
+        Uri.parse('$apiUrl/donations'),
+        headers: {
+          'Authorization': 'Bearer $idToken',
+          'Content-Type': 'application/json',
+        },
+        body: jsonEncode({
+          'deliveryOption': _selectedDeliveryOption,
+          'pickupStation': _selectedDeliveryOption == 'Pickup' ? _pickupStationController.text.trim() : null,
+          'locationName': _detectedDistrict,
+          'userId': user.uid,
+          'status': 'pending',
+          'timestamp': DateTime.now().toIso8601String(),
+          'item': _items.map((item) => ({
+            'item': item['title']!.text.trim(),
+            'description': item['description']!.text.trim(),
+            'quantity': int.parse(item['quantity']!.text),
+            'category': item['category']!.text,
+          })).toList(),
+        }),
+      );
 
-      final donationRef = FirebaseFirestore.instance.collection('donations').doc();
-
-      await donationRef.set({
-        'deliveryOption': _selectedDeliveryOption,
-        'pickupStation': _selectedDeliveryOption == 'Pickup' ? _pickupStationController.text.trim() : null,
-        'location': _detectedDistrict,  // <-- save district here
-        'donorId': user.uid,
-        'donorEmail': user.email,
-        'status': 'pending',
-        'timestamp': FieldValue.serverTimestamp(),
-      });
-
-      for (var item in _items) {
-        await donationRef.collection('items').add({
-          'title': item['title']!.text.trim(),
-          'description': item['description']!.text.trim(),
-          'quantity': int.parse(item['quantity']!.text),
-          'category': item['category']!.text,
-        });
-      }
-
-      await FirebaseFirestore.instance.collection('admin_notifications').add({
-        'type': 'donation',
-        'category': 'donations',
-        'title': 'New Donation from ${user.email}',
-        'message': '${user.email} donated ${_items.length} item(s) - ${DateTime.now().toLocal()}',
-        'donorEmail': user.email,
-        'donationId': donationRef.id,
-        'timestamp': FieldValue.serverTimestamp(),
-        'read': false,
-        'starred': false,
-      });
-
-      if (mounted) {
+      if (response.statusCode == 200) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Donation submitted successfully!')),
         );
         Navigator.of(context).pop();
+      } else {
+        throw Exception('Failed to submit donation: ${response.body}');
       }
     } catch (e) {
-      _showError(_getFriendlyErrorMessage(e));
+      _showError('Error: $e');
     } finally {
-      if (mounted) setState(() => _isSubmitting = false);
+      setState(() => _isSubmitting = false);
     }
   }
 
   void _showError(String message) {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
-  }
-
-  String _getFriendlyErrorMessage(Object e) {
-    final errorStr = e.toString().toLowerCase();
-    if (errorStr.contains('network')) return 'No internet connection.';
-    if (errorStr.contains('timeout')) return 'The request timed out.';
-    return 'An error occurred. Please try again.';
   }
 
   @override
