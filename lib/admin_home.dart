@@ -10,7 +10,6 @@ class AdminHome extends StatelessWidget {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Admin Dashboard'),
-        backgroundColor: Colors.deepPurple, // ✅ AppBar colored purple
         actions: [
           ProfilePictureWidget(
             size: 32,
@@ -42,6 +41,7 @@ class AdminHome extends StatelessWidget {
             ),
 
             const SizedBox(height: 16),
+
             ElevatedButton.icon(
               icon: const Icon(Icons.local_shipping),
               label: const Text('Distribute to Organizations'),
@@ -52,7 +52,9 @@ class AdminHome extends StatelessWidget {
                 padding: const EdgeInsets.symmetric(vertical: 16),
               ),
             ),
+
             const SizedBox(height: 16),
+
             ElevatedButton.icon(
               icon: const Icon(Icons.bar_chart),
               label: const Text('View Reports'),
@@ -63,7 +65,9 @@ class AdminHome extends StatelessWidget {
                 padding: const EdgeInsets.symmetric(vertical: 16),
               ),
             ),
+
             const SizedBox(height: 16),
+
             ElevatedButton.icon(
               icon: const Icon(Icons.verified_user),
               label: const Text('Review Organization Requests'),
@@ -77,6 +81,7 @@ class AdminHome extends StatelessWidget {
 
 
             const SizedBox(height: 16),
+
             ElevatedButton.icon(
               icon: const Icon(Icons.notifications),
               label: const Text('Notifications'),
@@ -87,7 +92,9 @@ class AdminHome extends StatelessWidget {
                 padding: const EdgeInsets.symmetric(vertical: 16),
               ),
             ),
+
             const SizedBox(height: 16),
+
             ElevatedButton.icon(
               icon: const Icon(Icons.settings),
               label: const Text('Settings'),
@@ -113,9 +120,7 @@ class AdminHome extends StatelessWidget {
       Navigator.pushNamedAndRemoveUntil(context, '/login', (route) => false);
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Failed to logout. Please check your connection.'),
-        ),
+        SnackBar(content: Text('Logout failed: ${e.toString()}')),
       );
     }
   }

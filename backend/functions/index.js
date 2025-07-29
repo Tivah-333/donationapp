@@ -1,12 +1,8 @@
 const functions = require('firebase-functions');
 const admin = require('firebase-admin');
-
-admin.initializeApp();  // <--- Initialize first
-
 const express = require('express');
 const cors = require('cors');
 
-// Now require routes AFTER initializeApp()
 const userRoutes = require('./routes/users');
 const donationRoutes = require('./routes/donations');
 const supportRoutes = require('./routes/support');
@@ -14,11 +10,13 @@ const notificationRoutes = require('./routes/notifications');
 const reportRoutes = require('./routes/reports');
 const imageRoutes = require('./routes/images');
 
+admin.initializeApp();
+
 const app = express();
 app.use(cors({ origin: true }));
 app.use(express.json());
 
-// Mount routes
+// Mount route handlers
 app.use('/api/users', userRoutes);
 app.use('/api/donations', donationRoutes);
 app.use('/api/support', supportRoutes);

@@ -1,13 +1,29 @@
 import 'package:flutter/material.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 
-class DonorsDonationHistoryPage extends StatefulWidget {
+class DonorsDonationHistoryPage extends StatelessWidget {
   const DonorsDonationHistoryPage({super.key});
 
-  @override
-  State<DonorsDonationHistoryPage> createState() => _DonorsDonationHistoryPageState();
-}
+  // Non-money donations sample data WITHOUT blankets
+  final List<Map<String, dynamic>> donations = const [
+    {
+      'date': '2025-07-01',
+      'category': 'Clothes',
+      'quantity': 5,
+      'status': 'Delivered',
+    },
+    {
+      'date': '2025-06-15',
+      'category': 'Food Supplies',
+      'quantity': 10,
+      'status': 'Pending',
+    },
+    {
+      'date': '2025-05-20',
+      'category': 'Clothes',
+      'quantity': 3,
+      'status': 'Delivered',
+    },
+  ];
 
 class _DonorsDonationHistoryPageState extends State<DonorsDonationHistoryPage> {
   bool _isLoading = true;
@@ -141,11 +157,12 @@ class _DonorsDonationHistoryPageState extends State<DonorsDonationHistoryPage> {
     ];
   }
 
+  // Calculate total quantities per category
   Map<String, int> getDonationTotals() {
     final Map<String, int> totals = {};
-    for (var donation in _donations) {
-      final category = donation['category'] as String? ?? 'Unknown';
-      final quantity = donation['quantity'] as int? ?? 0;
+    for (var donation in donations) {
+      final category = donation['category'] as String;
+      final quantity = donation['quantity'] as int;
       totals[category] = (totals[category] ?? 0) + quantity;
     }
     return totals;
@@ -156,42 +173,22 @@ class _DonorsDonationHistoryPageState extends State<DonorsDonationHistoryPage> {
     final totals = getDonationTotals();
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Donation History'),
-        backgroundColor: Colors.deepPurple, // Changed here to deep purple
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.refresh),
-            onPressed: () async {
-              User? user = FirebaseAuth.instance.currentUser;
-              if (user != null) {
-                await _fetchDonations(user);
-              }
-            },
-          ),
-        ],
-      ),
+      appBar: AppBar(title: const Text('Donation History')),
       body: Padding(
         padding: const EdgeInsets.all(16.0),
-        child: _isLoading
-            ? const Center(child: CircularProgressIndicator())
-            : _errorMessage != null
-            ? _buildErrorMessage()
-            : _donations.isEmpty
-            ? const Center(
-          child: Text(
-            'You have no donation records yet. Start donating to earn badges!',
-            style: TextStyle(fontSize: 16),
-            textAlign: TextAlign.center,
-          ),
-        )
-            : Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+        child: Column(
           children: [
+            // Badges Section
             _buildBadgesSection(),
+
             const SizedBox(height: 24),
+
+            // Statistics Section
             _buildStatisticsSection(totals),
+
             const SizedBox(height: 24),
+
+            // Donations List
             Expanded(child: _buildDonationsList()),
           ],
         ),
@@ -199,23 +196,20 @@ class _DonorsDonationHistoryPageState extends State<DonorsDonationHistoryPage> {
     );
   }
 
-  Widget _buildErrorMessage() {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Text(
-            _errorMessage ?? '',
-            style: const TextStyle(color: Colors.red, fontSize: 16),
-            textAlign: TextAlign.center,
+  Widget _buildStatisticsSection(Map<String, int> totals) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text('Donation Statistics',
+            style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+        const SizedBox(height: 12),
+        ...totals.entries.map(
+              (entry) => Text(
+            '${entry.key}: ${entry.value} items donated',
+            style: const TextStyle(fontSize: 16),
           ),
-          const SizedBox(height: 16),
-          ElevatedButton(
-            onPressed: _waitForUserAndFetchDonations,
-            child: const Text('Retry'),
-          ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 
@@ -230,10 +224,10 @@ class _DonorsDonationHistoryPageState extends State<DonorsDonationHistoryPage> {
           height: 100,
           child: ListView.separated(
             scrollDirection: Axis.horizontal,
-            itemCount: _badges.length,
+            itemCount: badges.length,
             separatorBuilder: (_, __) => const SizedBox(width: 16),
             itemBuilder: (context, index) {
-              final badge = _badges[index];
+              final badge = badges[index];
               return Column(
                 children: [
                   CircleAvatar(
@@ -267,29 +261,12 @@ class _DonorsDonationHistoryPageState extends State<DonorsDonationHistoryPage> {
     );
   }
 
-  Widget _buildStatisticsSection(Map<String, int> totals) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Text('Donation Statistics',
-            style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-        const SizedBox(height: 12),
-        ...totals.entries.map(
-              (entry) => Text(
-            '${entry.key}: ${entry.value} items donated',
-            style: const TextStyle(fontSize: 16),
-          ),
-        ),
-      ],
-    );
-  }
-
   Widget _buildDonationsList() {
     return ListView.separated(
-      itemCount: _donations.length,
+      itemCount: donations.length,
       separatorBuilder: (_, __) => const Divider(),
       itemBuilder: (context, index) {
-        final donation = _donations[index];
+        final donation = donations[index];
         return ListTile(
           leading: const Icon(Icons.card_giftcard),
           title:

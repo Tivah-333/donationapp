@@ -17,6 +17,8 @@ class OrganizationSettingsPage extends StatefulWidget {
 }
 
 class _OrganizationSettingsPageState extends State<OrganizationSettingsPage> {
+  bool emailNotifications = true;
+  String? location;
   final user = FirebaseAuth.instance.currentUser;
   final _formKey = GlobalKey<FormState>();
 
@@ -48,6 +50,7 @@ class _OrganizationSettingsPageState extends State<OrganizationSettingsPage> {
       if (data != null) {
         nameController.text = data['name'] ?? '';
         contactController.text = data['contact'] ?? '';
+        emailNotifications = data['emailNotifications'] ?? true;
         profileImageUrl = data['profileImageUrl'];
         isDarkTheme = data['isDarkTheme'] ?? false;
         notificationsEnabled = data['notificationsEnabled'] ?? true;

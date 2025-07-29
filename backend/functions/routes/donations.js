@@ -59,18 +59,6 @@ router.post('/', async (req, res) => {
 
     const docRef = await db.collection('donations').add(donation);
 
-    // ✅ Add Firestore notification here
-    await db.collection('notifications').add({
-      title: `New Donation from ${req.user.email}`,
-      message: `${req.user.email} donated ${item} (${category}) - Quantity: ${donation.quantity} - ${new Date().toLocaleDateString()} at ${new Date().toLocaleTimeString()}`,
-      type: 'donation',
-      timestamp: admin.firestore.FieldValue.serverTimestamp(),
-      read: false,
-      starred: false,
-      donorEmail: req.user.email,
-      donationId: docRef.id,
-    });
-
     if (req.user.role === 'Organization') {
       await admin.messaging().send({
         topic: 'admin_notifications',

@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -24,15 +25,22 @@ class _DonorSettingsPageState extends State<DonorSettingsPage> {
   }
 
   Future<void> _loadSettings() async {
-    // Load dark mode or other settings if saved in Firestore or locally
-    // For now, default false (already set)
+    if (user != null) {
+      final doc = await FirebaseFirestore.instance.collection('users').doc(user!.uid).get();
+      final data = doc.data();
+      if (data != null) {
+        setState(() {
+          isDarkMode = data['darkMode'] ?? false;
+        });
+      }
+    }
   }
 
   Future<void> _updateDarkMode(bool value) async {
-    setState(() {
-      isDarkMode = value;
+    setState(() => isDarkMode = value);
+    await FirebaseFirestore.instance.collection('users').doc(user!.uid).update({
+      'darkMode': value,
     });
-    // TODO: Save dark mode preference to Firestore or local storage
   }
 
   Future<void> _changePassword() async {
@@ -49,29 +57,21 @@ class _DonorSettingsPageState extends State<DonorSettingsPage> {
       context: context,
       builder: (_) => AlertDialog(
         title: const Text('Delete Account'),
-        content: const Text('Are you sure you want to permanently delete your account? This action cannot be undone.'),
+        content: const Text('Are you sure you want to permanently delete your account?'),
         actions: [
           TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
-          TextButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Delete', style: TextStyle(color: Colors.red)),
-          ),
+          TextButton(onPressed: () => Navigator.pop(context, true), child: const Text('Delete', style: TextStyle(color: Colors.red))),
         ],
       ),
     );
 
     if (confirm == true && user != null) {
       try {
-        await FirebaseAuth.instance.signOut(); // Sign out first
-
         await FirebaseFirestore.instance.collection('users').doc(user!.uid).delete();
-
         await user!.delete();
-
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Account deleted successfully')),
         );
-
         Navigator.pushNamedAndRemoveUntil(context, '/login', (_) => false);
       } catch (e) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -81,43 +81,30 @@ class _DonorSettingsPageState extends State<DonorSettingsPage> {
     }
   }
 
-  void _logout() async {
-    await FirebaseAuth.instance.signOut();
-    Navigator.pushNamedAndRemoveUntil(context, '/login', (_) => false);
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Settings'),
-        backgroundColor: Colors.deepPurple, // Changed here to deep purple
+        title: const Text('Donor Settings'),
       ),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          ListTile(
-            leading: const Icon(Icons.person),
-            title: const Text('Profile'),
-            trailing: const Icon(Icons.arrow_forward_ios),
-            onTap: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const DonorProfilePage()),
-              );
-            },
-          ),
-          const Divider(),
+          const Text('Preferences', style: TextStyle(fontWeight: FontWeight.bold)),
           SwitchListTile(
             title: const Text('Enable Dark Theme'),
             value: isDarkMode,
             onChanged: _updateDarkMode,
           ),
-          const Divider(),
-          ListTile(
-            leading: const Icon(Icons.lock),
-            title: const Text('Change Password'),
-            onTap: _changePassword,
+
+          const Divider(height: 32),
+
+          const Text('Security', style: TextStyle(fontWeight: FontWeight.bold)),
+          const SizedBox(height: 10),
+          ElevatedButton.icon(
+            icon: const Icon(Icons.lock),
+            label: const Text('Change Password'),
+            onPressed: _changePassword,
           ),
           const Divider(),
           ListTile(
@@ -130,21 +117,22 @@ class _DonorSettingsPageState extends State<DonorSettingsPage> {
               );
             },
           ),
-          const Divider(),
-          ListTile(
-            leading: const Icon(Icons.exit_to_app),
-            title: const Text('Logout'),
-            onTap: _logout,
-          ),
-          const Divider(),
-          ListTile(
-            leading: const Icon(Icons.delete_forever, color: Colors.red),
-            title: const Text('Delete Account', style: TextStyle(color: Colors.red)),
-            onTap: _deleteAccount,
+
+          const Divider(height: 32),
+
+          const Text('Location Settings', style: TextStyle(fontWeight: FontWeight.bold)),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Expanded(child: Text(location ?? 'Getting location...')),
+              IconButton(
+                icon: const Icon(Icons.refresh),
+                onPressed: _getLocation,
+              ),
+            ],
           ),
         ],
       ),
     );
   }
 }
-

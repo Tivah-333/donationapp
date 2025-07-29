@@ -9,13 +9,7 @@ class DonorHome extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        backgroundColor: Colors.deepPurple, // Changed here to deepPurple
-        iconTheme: const IconThemeData(color: Colors.black),
-        actionsIconTheme: const IconThemeData(color: Colors.black),
-        title: const Text(
-          'Donor Dashboard',
-          style: TextStyle(color: Colors.black),
-        ),
+        title: const Text('Donor Dashboard'),
         actions: [
           ProfilePictureWidget(
             size: 32,
@@ -43,6 +37,7 @@ class DonorHome extends StatelessWidget {
               },
             ),
             const SizedBox(height: 16),
+
             ElevatedButton.icon(
               icon: const Icon(Icons.history),
               label: const Text('Donation History'),
@@ -51,6 +46,7 @@ class DonorHome extends StatelessWidget {
               },
             ),
             const SizedBox(height: 16),
+
             ElevatedButton.icon(
               icon: const Icon(Icons.notifications),
               label: const Text('Notifications'),
@@ -59,6 +55,7 @@ class DonorHome extends StatelessWidget {
               },
             ),
             const SizedBox(height: 16),
+
             ElevatedButton.icon(
               icon: const Icon(Icons.support_agent),
               label: const Text('Contact Support'),
@@ -67,6 +64,7 @@ class DonorHome extends StatelessWidget {
               },
             ),
             const SizedBox(height: 16),
+
             ElevatedButton.icon(
               icon: const Icon(Icons.report_problem),
               label: const Text('Report a Problem'),
@@ -75,6 +73,7 @@ class DonorHome extends StatelessWidget {
               },
             ),
             const SizedBox(height: 16),
+
             ElevatedButton.icon(
               icon: const Icon(Icons.settings),
               label: const Text('Settings'),

@@ -149,30 +149,9 @@ class _SignupScreenState extends State<SignupScreen> {
       Navigator.of(context).pushNamedAndRemoveUntil('/', (route) => false);
 
     } on FirebaseAuthException catch (e) {
-      String message;
-      switch (e.code) {
-        case 'invalid-email':
-          message = "The email address is invalid. Please enter a valid email.";
-          break;
-        case 'email-already-in-use':
-          message = "This email is already registered. Please log in or use another email.";
-          break;
-        case 'operation-not-allowed':
-          message = "Email/password signup is currently disabled. Please try another method.";
-          break;
-        case 'weak-password':
-          message = "Your password is too weak. Please use at least 6 characters.";
-          break;
-        case 'network-request-failed':
-          message = "Network error. Please check your internet connection and try again.";
-          break;
-        case 'too-many-requests':
-          message = "Too many attempts. Please wait and try again later.";
-          break;
-        default:
-          message = "Signup failed. Please try again.";
-      }
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(e.message ?? 'Signup failed')),
+      );
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -415,5 +394,4 @@ class _SignupScreenState extends State<SignupScreen> {
     super.dispose();
   }
 }
-
 
