@@ -1,6 +1,7 @@
 {
   "projects": {
-    "donationapp": "donationapp-3c"
+    "donationapp": "donationapp-3c",
+    "default": "donationapp-3c"
   },
   "targets": {},
   "etags": {}

@@ -3,23 +3,28 @@ const admin = require('firebase-admin');
 const { authenticate, restrictToRole } = require('../middleware/auth');
 
 const router = express.Router();
+const db = admin.firestore();
 
 // Apply authentication middleware
 router.use(authenticate);
 
-// GET /api/donations - Fetch donations
+// GET /api/donations - Fetch donations for user or organization
 router.get('/', async (req, res) => {
   try {
     const { orgId, search } = req.query;
     let query = db.collection('donations').orderBy('timestamp', 'desc');
-    if (orgId && req.user.role === 'Organization') {
+
+    if (req.user.role === 'Donor') {
+      query = query.where('userId', '==', req.user.uid);
+    } else if (req.user.role === 'Organization' && orgId) {
       query = query.where('orgId', '==', orgId);
     }
+
     if (search) {
       query = query.where('item', '>=', search).where('item', '<=', search + '\uf8ff');
     }
+
     const snapshot = await query.get();
-    const db = admin.firestore();
     const donations = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
     res.json(donations);
   } catch (error) {
@@ -27,50 +32,99 @@ router.get('/', async (req, res) => {
   }
 });
 
-// POST /api/donations - Create donation
-router.post('/', restrictToRole('Organization'), async (req, res) => {
+// POST /api/donations - Donors or Organizations can create donation requests
+router.post('/', async (req, res) => {
   try {
-    const { item, description, category, location } = req.body;
+    const { item, category, quantity, deliveryOption, description, locationName, locationCoords, location } = req.body;
+
     const donation = {
-      item,
-      description,
-      category,
-      orgId: req.user.uid,
-      status: 'pending',
+      item: item || null,
+      category: category || 'Other',
+      quantity: parseInt(quantity) || 1,
+      deliveryOption: deliveryOption || 'Pickup',
+      description: description || '',
+      locationName: locationName || 'Unknown',
+      locationCoords: locationCoords ? new admin.firestore.GeoPoint(locationCoords.latitude, locationCoords.longitude) : null,
       location: location ? new admin.firestore.GeoPoint(location.latitude, location.longitude) : null,
+      imageUrl: req.body.imageUrl || null,
       timestamp: admin.firestore.FieldValue.serverTimestamp(),
+      status: 'pending',
     };
+
+    if (req.user.role === 'Organization') {
+      donation.orgId = req.user.uid;
+    } else {
+      donation.userId = req.user.uid;
+    }
+
     const docRef = await db.collection('donations').add(donation);
-    await admin.messaging().send({
-      topic: `admin_notifications`,
-      notification: {
-        title: 'New Donation Request',
-        body: `Organization ${req.user.email} created a donation request for ${item}.`,
-      },
-    });
-    res.json({ id: docRef.id });
+
+    if (req.user.role === 'Organization') {
+      await admin.messaging().send({
+        topic: 'admin_notifications',
+        notification: {
+          title: 'New Donation Request',
+          body: `Organization ${req.user.email} created a donation request for ${item}.`,
+        },
+      });
+    }
+
+    res.json({ id: docRef.id, message: 'Donation created' });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 });
 
-// PUT /api/donations/:id - Update donation
-router.put('/:id', restrictToRole('Organization', 'Administrator'), async (req, res) => {
+// PUT /api/donations/:id - Update donation (Org/Admin/Owner)
+router.put('/:id', async (req, res) => {
   try {
+    const docRef = db.collection('donations').doc(req.params.id);
+    const doc = await docRef.get();
+
+    if (!doc.exists) {
+      return res.status(404).json({ error: 'Donation not found' });
+    }
+
+    const data = doc.data();
+
+    if (
+      req.user.role === 'Donor' && data.userId !== req.user.uid ||
+      req.user.role === 'Organization' && data.orgId !== req.user.uid
+    ) {
+      return res.status(403).json({ error: 'Unauthorized to update this donation' });
+    }
+
     const updates = req.body;
     updates.lastEditedAt = admin.firestore.FieldValue.serverTimestamp();
     updates.lastEditedBy = req.user.email;
-    await db.collection('donations').doc(req.params.id).update(updates);
+
+    await docRef.update(updates);
     res.json({ message: 'Donation updated successfully' });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 });
 
-// DELETE /api/donations/:id - Delete donation
-router.delete('/:id', restrictToRole('Organization', 'Administrator'), async (req, res) => {
+// DELETE /api/donations/:id - Delete donation (Org/Admin/Owner)
+router.delete('/:id', async (req, res) => {
   try {
-    await db.collection('donations').doc(req.params.id).delete();
+    const docRef = db.collection('donations').doc(req.params.id);
+    const doc = await docRef.get();
+
+    if (!doc.exists) {
+      return res.status(404).json({ error: 'Donation not found' });
+    }
+
+    const data = doc.data();
+
+    if (
+      req.user.role === 'Donor' && data.userId !== req.user.uid ||
+      req.user.role === 'Organization' && data.orgId !== req.user.uid
+    ) {
+      return res.status(403).json({ error: 'Unauthorized to delete this donation' });
+    }
+
+    await docRef.delete();
     res.json({ message: 'Donation deleted successfully' });
   } catch (error) {
     res.status(500).json({ error: error.message });
