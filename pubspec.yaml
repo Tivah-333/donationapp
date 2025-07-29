@@ -25,7 +25,7 @@ dependencies:
   google_maps_flutter_web: ^0.5.12+2
   google_maps_webservice: any
   flutter_google_places: ^0.3.0
-  http: ^0.13.6
+
   universal_html: ^2.2.4
 
   google_api_headers: 1.6.0
