@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:intl/intl.dart';
 
 class DonationStatisticsPage extends StatefulWidget {
   const DonationStatisticsPage({super.key});
@@ -9,241 +11,296 @@ class DonationStatisticsPage extends StatefulWidget {
 }
 
 class _DonationStatisticsPageState extends State<DonationStatisticsPage> {
-  final Map<String, Duration> dateRanges = {
-    'Last 7 days': Duration(days: 7),
-    'Last 30 days': Duration(days: 30),
-    'Last 90 days': Duration(days: 90),
-    'All time': Duration(days: 365 * 10),
-  };
-
-  String selectedRangeLabel = 'Last 7 days';
-  DateTimeRange? customDateRange;
-
-  String searchQuery = '';
-  TextEditingController searchController = TextEditingController();
-
-  int totalDonations = 0;
-  int approved = 0;
-  int rejected = 0;
-  int pending = 0;
-  int delivered = 0;
-
-  Map<String, int> itemCounts = {};
-
-  bool loading = true;
+  final user = FirebaseAuth.instance.currentUser;
+  bool _isLoading = true;
+  
+  // Statistics data
+  int totalAssigned = 0;
+  int pendingCount = 0;
+  int pickedUpCount = 0;
+  int droppedOffCount = 0;
+  
+  // Donations by status
+  List<Map<String, dynamic>> pendingDonations = [];
+  List<Map<String, dynamic>> pickedUpDonations = [];
+  List<Map<String, dynamic>> droppedOffDonations = [];
 
   @override
   void initState() {
     super.initState();
-    _fetchStatistics();
+    _loadOrganizationStatistics();
   }
 
-  DateTime get startDate {
-    if (selectedRangeLabel == 'All time') {
-      return DateTime(2000);
-    } else if (customDateRange != null) {
-      return customDateRange!.start;
-    } else {
-      return DateTime.now().subtract(dateRanges[selectedRangeLabel]!);
-    }
-  }
+  Future<void> _loadOrganizationStatistics() async {
+    if (user == null) return;
 
-  DateTime get endDate {
-    if (customDateRange != null) {
-      return customDateRange!.end;
-    } else {
-      return DateTime.now();
-    }
-  }
+    setState(() => _isLoading = true);
 
-  Future<void> _fetchStatistics() async {
-    setState(() {
-      loading = true;
-      totalDonations = 0;
-      approved = 0;
-      rejected = 0;
-      pending = 0;
-      delivered = 0;
-      itemCounts = {};
-    });
+    try {
+      // Get all donations assigned to this organization
+      final donationsSnapshot = await FirebaseFirestore.instance
+          .collection('donations')
+          .where('assignedTo', isEqualTo: user!.uid)
+          .get();
 
-    final donationsRef = FirebaseFirestore.instance.collection('donations');
-
-    Query query = donationsRef
-        .where('timestamp', isGreaterThanOrEqualTo: Timestamp.fromDate(startDate))
-        .where('timestamp', isLessThanOrEqualTo: Timestamp.fromDate(endDate));
-
-    if (searchQuery.isNotEmpty) {
-      final snapshot = await query.get();
-      final docs = snapshot.docs;
-      final filteredDocs = docs.where((doc) {
-        final itemName = (doc['itemName'] ?? '').toString().toLowerCase();
-        return itemName.contains(searchQuery.toLowerCase());
-      }).toList();
-
-      _calculateStatsFromDocs(filteredDocs);
-    } else {
-      final snapshot = await query.get();
-      _calculateStatsFromDocs(snapshot.docs);
-    }
-
-    setState(() {
-      loading = false;
-    });
-  }
-
-  void _calculateStatsFromDocs(List<QueryDocumentSnapshot> docs) {
-    totalDonations = docs.length;
-    approved = 0;
-    rejected = 0;
-    pending = 0;
-    delivered = 0;
-
-    itemCounts = {};
-
-    for (final doc in docs) {
-      final data = doc.data() as Map<String, dynamic>;
-
-      final status = (data['status'] ?? '').toString().toLowerCase();
-      final itemName = (data['itemName'] ?? '').toString();
-      final quantity = (data['quantity'] ?? 1) as int;
-
-      switch (status) {
-        case 'approved':
-          approved += 1;
-          break;
-        case 'rejected':
-          rejected += 1;
-          break;
-        case 'pending':
-          pending += 1;
-          break;
-        case 'delivered':
-          delivered += 1;
-          break;
+      final List<Map<String, dynamic>> allDonations = [];
+      
+      for (final doc in donationsSnapshot.docs) {
+        final data = doc.data();
+        
+        // Extract category from categorySummary or fallback to category field
+        String category = 'Unknown';
+        if (data['categorySummary'] != null) {
+          final categorySummary = data['categorySummary'] as Map<String, dynamic>;
+          // Get the first category from categorySummary
+          if (categorySummary.isNotEmpty) {
+            category = categorySummary.keys.first;
+          }
+        } else if (data['category'] != null) {
+          category = data['category'] as String;
+        } else if (data['categories'] != null) {
+          final categories = data['categories'] as List<dynamic>;
+          if (categories.isNotEmpty) {
+            category = categories.first as String;
+          }
+        }
+        
+        print('📊 Processing donation ${doc.id}: category=$category, status=${data['status']}');
+        
+        final donation = {
+          'id': doc.id,
+          'donorEmail': data['donorEmail'] ?? 'Unknown',
+          'location': data['location'] ?? 'Unknown',
+          'deliveryOption': data['deliveryOption'] ?? 'Unknown',
+          'pickupStation': data['pickupStation'],
+          'quantity': data['quantity'] ?? 0,
+          'category': category,
+          'title': data['title'] ?? 'Unknown',
+          'assignedAt': data['assignedAt'] as Timestamp?,
+          'pickedUpAt': data['pickedUpAt'] as Timestamp?,
+          'droppedOffAt': data['droppedOffAt'] as Timestamp?,
+          'status': data['status'] ?? 'approved',
+        };
+        
+        allDonations.add(donation);
       }
 
-      itemCounts[itemName] = (itemCounts[itemName] ?? 0) + quantity;
-    }
-  }
+      // Also get dropped-off donations that might not be assigned to this organization
+      // but were processed by this organization
+      final droppedOffSnapshot = await FirebaseFirestore.instance
+          .collection('donations')
+          .where('status', isEqualTo: 'dropped_off')
+          .get();
 
-  Future<void> _selectCustomDateRange() async {
-    final picked = await showDateRangePicker(
-      context: context,
-      firstDate: DateTime(2000),
-      lastDate: DateTime.now(),
-      initialDateRange: customDateRange,
-    );
-    if (picked != null) {
-      setState(() {
-        customDateRange = picked;
-        selectedRangeLabel = 'Custom Range';
-      });
-      await _fetchStatistics();
-    }
-  }
+      print('🔍 Found ${droppedOffSnapshot.docs.length} dropped-off donations total');
 
-  void _onSearchChanged(String value) {
-    setState(() {
-      searchQuery = value.trim();
-    });
-    _fetchStatistics();
+      for (final doc in droppedOffSnapshot.docs) {
+        final data = doc.data();
+        
+        // Only include if this organization was involved in processing
+        if (data['assignedTo'] == user!.uid || 
+            data['processedBy'] == user!.uid ||
+            data['organizationId'] == user!.uid) {
+          
+          print('✅ Including dropped-off donation ${doc.id} for organization ${user!.uid}');
+          
+          // Extract category from categorySummary or fallback to category field
+          String category = 'Unknown';
+          if (data['categorySummary'] != null) {
+            final categorySummary = data['categorySummary'] as Map<String, dynamic>;
+            // Get the first category from categorySummary
+            if (categorySummary.isNotEmpty) {
+              category = categorySummary.keys.first;
+            }
+          } else if (data['category'] != null) {
+            category = data['category'] as String;
+          } else if (data['categories'] != null) {
+            final categories = data['categories'] as List<dynamic>;
+            if (categories.isNotEmpty) {
+              category = categories.first as String;
+            }
+          }
+          
+          print('📊 Processing dropped-off donation ${doc.id}: category=$category');
+          
+          final donation = {
+            'id': doc.id,
+            'donorEmail': data['donorEmail'] ?? 'Unknown',
+            'location': data['location'] ?? 'Unknown',
+            'deliveryOption': data['deliveryOption'] ?? 'Unknown',
+            'pickupStation': data['pickupStation'],
+            'quantity': data['quantity'] ?? 0,
+            'category': category,
+            'title': data['title'] ?? 'Unknown',
+            'assignedAt': data['assignedAt'] as Timestamp?,
+            'pickedUpAt': data['pickedUpAt'] as Timestamp?,
+            'droppedOffAt': data['droppedOffAt'] as Timestamp?,
+            'status': data['status'] ?? 'dropped_off',
+          };
+          
+          // Only add if not already in the list
+          if (!allDonations.any((d) => d['id'] == donation['id'])) {
+            allDonations.add(donation);
+          }
+        } else {
+          print('❌ Excluding dropped-off donation ${doc.id} - not processed by ${user!.uid}');
+        }
+      }
+
+      // Also check donation_requests collection for this organization
+      print('🔍 Checking donation_requests collection for organization ${user!.uid}');
+      final donationRequestsSnapshot = await FirebaseFirestore.instance
+          .collection('donation_requests')
+          .where('organizationId', isEqualTo: user!.uid)
+          .get();
+
+      print('📋 Found ${donationRequestsSnapshot.docs.length} donation requests for organization');
+
+      for (final doc in donationRequestsSnapshot.docs) {
+        final data = doc.data();
+        final status = data['status'] as String? ?? 'pending';
+        
+        print('📊 Processing donation request ${doc.id}: status=$status, title=${data['title']}');
+        
+        // Only include if it's a dropped-off request
+        if (status == 'dropped_off') {
+          print('✅ Including dropped-off donation request ${doc.id}');
+          
+          final donation = {
+            'id': 'request_${doc.id}', // Prefix to avoid conflicts
+            'donorEmail': 'Organization Request', // These are organization requests, not donor donations
+            'location': data['location'] ?? 'Unknown',
+            'deliveryOption': data['deliveryMethod'] ?? 'Unknown',
+            'pickupStation': data['pickupStation'],
+            'quantity': data['quantity'] ?? 0,
+            'category': data['category'] ?? 'Unknown',
+            'title': data['title'] ?? 'Unknown',
+            'assignedAt': data['assignedAt'] as Timestamp?,
+            'pickedUpAt': data['organizationReviewedAt'] as Timestamp?, // Use organizationReviewedAt for picked up
+            'droppedOffAt': data['organizationReviewedAt'] as Timestamp?, // Use organizationReviewedAt for dropped off
+            'status': status,
+          };
+          
+          // Only add if not already in the list
+          if (!allDonations.any((d) => d['id'] == donation['id'])) {
+            allDonations.add(donation);
+          }
+        }
+      }
+
+      // Categorize donations by status
+      pendingDonations = allDonations.where((d) => d['status'] == 'approved').toList();
+      pickedUpDonations = allDonations.where((d) => d['status'] == 'picked_up').toList();
+      droppedOffDonations = allDonations.where((d) => d['status'] == 'dropped_off').toList();
+
+      // Update counts
+      totalAssigned = allDonations.length;
+      pendingCount = pendingDonations.length;
+      pickedUpCount = pickedUpDonations.length;
+      droppedOffCount = droppedOffDonations.length;
+
+      print('📈 Final statistics:');
+      print('  - Total assigned: $totalAssigned');
+      print('  - Pending: $pendingCount');
+      print('  - Picked up: $pickedUpCount');
+      print('  - Dropped off: $droppedOffCount');
+
+    } catch (e) {
+      print('Error loading organization statistics: $e');
+    } finally {
+      setState(() => _isLoading = false);
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Donation Statistics'),
-        backgroundColor: Colors.deepPurple, // updated to deep purple
-        iconTheme: const IconThemeData(color: Colors.white),
-        titleTextStyle: const TextStyle(
-          color: Colors.white,
-          fontSize: 20,
-          fontWeight: FontWeight.bold,
-        ),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.refresh),
-            tooltip: 'Refresh',
-            onPressed: _fetchStatistics,
-            color: Colors.white,
+    return DefaultTabController(
+      length: 3,
+      child: Scaffold(
+        appBar: AppBar(
+          title: const Text('Donation Statistics'),
+          backgroundColor: Colors.deepPurple,
+          bottom: const TabBar(
+            tabs: [
+              Tab(text: 'Pending'),
+              Tab(text: 'Picked Up'),
+              Tab(text: 'Dropped Off'),
+            ],
+            indicatorColor: Colors.white,
           ),
-        ],
-      ),
-      body: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          children: [
-            Row(
-              children: [
-                Expanded(
-                  child: DropdownButton<String>(
-                    isExpanded: true,
-                    value: selectedRangeLabel,
-                    items: dateRanges.keys
-                        .map((label) => DropdownMenuItem(
-                      value: label,
-                      child: Text(label),
-                    ))
-                        .toList()
-                      ..add(DropdownMenuItem(
-                        value: 'Custom Range',
-                        child: const Text('Custom Range'),
-                      )),
-                    onChanged: (val) async {
-                      if (val == 'Custom Range') {
-                        await _selectCustomDateRange();
-                      } else if (val != null) {
-                        setState(() {
-                          selectedRangeLabel = val;
-                          customDateRange = null;
-                        });
-                        await _fetchStatistics();
-                      }
-                    },
-                  ),
-                ),
-              ],
+          actions: [
+            IconButton(
+              icon: const Icon(Icons.refresh),
+              onPressed: _loadOrganizationStatistics,
             ),
-            const SizedBox(height: 16),
-            SizedBox(
-              height: 120,
-              child: ListView(
-                scrollDirection: Axis.horizontal,
+          ],
+        ),
+        body: _isLoading
+            ? const Center(child: CircularProgressIndicator())
+            : Column(
                 children: [
-                  _buildStatCard('Total Donations Received', totalDonations, Colors.blue),
-                  _buildStatCard('Approved', approved, Colors.green),
-                  _buildStatCard('Rejected', rejected, Colors.red),
-                  _buildStatCard('Pending', pending, Colors.orange),
-                  _buildStatCard('Delivered', delivered, Colors.purple),
+                  // Statistics Cards
+                  Container(
+                    padding: const EdgeInsets.all(16),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: _buildStatCard('Total Assigned', totalAssigned, Colors.blue),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: _buildStatCard('Pending', pendingCount, Colors.orange),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: _buildStatCard('Picked Up', pickedUpCount, Colors.purple),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: _buildStatCard('Dropped Off', droppedOffCount, Colors.green),
+                        ),
+                      ],
+                    ),
+                  ),
+                  
+                  // Tab Content
+                  Expanded(
+                    child: TabBarView(
+                      children: [
+                        _buildDonationsList(pendingDonations, 'approved'),
+                        _buildDonationsList(pickedUpDonations, 'picked_up'),
+                        _buildDonationsList(droppedOffDonations, 'dropped_off'),
+                      ],
+                    ),
+                  ),
                 ],
               ),
-            ),
-            const SizedBox(height: 20),
-            TextField(
-              controller: searchController,
-              decoration: const InputDecoration(
-                labelText: 'Search Donation Item',
-                prefixIcon: Icon(Icons.search),
-                border: OutlineInputBorder(),
+      ),
+    );
+  }
+
+  Widget _buildStatCard(String title, int count, Color color) {
+    return Card(
+      color: color.withOpacity(0.1),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          children: [
+            Text(
+              count.toString(),
+              style: TextStyle(
+                fontSize: 24,
+                fontWeight: FontWeight.bold,
+                color: color,
               ),
-              onChanged: _onSearchChanged,
             ),
-            const SizedBox(height: 20),
-            Expanded(
-              child: itemCounts.isEmpty
-                  ? Center(child: loading ? const CircularProgressIndicator() : const Text('No donations found'))
-                  : ListView(
-                children: itemCounts.entries
-                    .map(
-                      (e) => ListTile(
-                    title: Text(e.key),
-                    trailing: Text(e.value.toString()),
-                  ),
-                )
-                    .toList(),
+            Text(
+              title,
+              style: TextStyle(
+                fontSize: 12,
+                color: color,
               ),
+              textAlign: TextAlign.center,
             ),
           ],
         ),
@@ -251,35 +308,83 @@ class _DonationStatisticsPageState extends State<DonationStatisticsPage> {
     );
   }
 
-  Widget _buildStatCard(String label, int value, Color color) {
-    return Container(
-      width: 140,
-      margin: const EdgeInsets.only(right: 12),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: color.withOpacity(0.15),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: color),
-      ),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Text(
-            value.toString(),
-            style: TextStyle(
-              fontSize: 28,
-              fontWeight: FontWeight.bold,
-              color: color,
+  Widget _buildDonationsList(List<Map<String, dynamic>> donations, String status) {
+    if (donations.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              _getStatusIcon(status),
+              size: 64,
+              color: Colors.grey,
             ),
+            const SizedBox(height: 16),
+            Text(
+              'No ${status.replaceAll('_', ' ')} donations',
+              style: const TextStyle(fontSize: 18, color: Colors.grey),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return ListView.builder(
+      padding: const EdgeInsets.all(16),
+      itemCount: donations.length,
+      itemBuilder: (context, index) {
+        final donation = donations[index];
+        return Card(
+          margin: const EdgeInsets.only(bottom: 12),
+          child: ListTile(
+            title: Text('${donation['title']} from ${donation['donorEmail']}'),
+            subtitle: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Quantity: ${donation['quantity']} items'),
+                Text('Category: ${donation['category']}'),
+                Text('Location: ${donation['location']}'),
+                Text('Delivery: ${donation['deliveryOption'] == 'Pickup' ? 'Pickup' : 'Drop-off'}'),
+                if (donation['pickupStation'] != null)
+                  Text('Pickup Station: ${donation['pickupStation']}'),
+                if (donation['assignedAt'] != null)
+                  Text('Assigned: ${DateFormat('MMM d, y • h:mm a').format(donation['assignedAt'].toDate())}'),
+                if (donation['pickedUpAt'] != null)
+                  Text('Picked Up: ${DateFormat('MMM d, y • h:mm a').format(donation['pickedUpAt'].toDate())}'),
+                if (donation['droppedOffAt'] != null)
+                  Text('Dropped Off: ${DateFormat('MMM d, y • h:mm a').format(donation['droppedOffAt'].toDate())}'),
+              ],
+            ),
+            trailing: Icon(_getStatusIcon(status), color: _getStatusColor(status)),
           ),
-          const SizedBox(height: 6),
-          Text(
-            label,
-            textAlign: TextAlign.center,
-            style: TextStyle(color: color.withOpacity(0.8)),
-          ),
-        ],
-      ),
+        );
+      },
     );
+  }
+
+  IconData _getStatusIcon(String status) {
+    switch (status) {
+      case 'approved':
+        return Icons.schedule;
+      case 'picked_up':
+        return Icons.local_shipping;
+      case 'dropped_off':
+        return Icons.check_circle;
+      default:
+        return Icons.info;
+    }
+  }
+
+  Color _getStatusColor(String status) {
+    switch (status) {
+      case 'approved':
+        return Colors.orange;
+      case 'picked_up':
+        return Colors.purple;
+      case 'dropped_off':
+        return Colors.green;
+      default:
+        return Colors.grey;
+    }
   }
 }

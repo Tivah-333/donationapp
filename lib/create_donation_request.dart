@@ -1,3 +1,7 @@
+import 'dart:convert'; // Added for JSON decoding and HTTP
+import 'package:http/http.dart' as http; // Added for HTTP requests
+import 'package:flutter/foundation.dart' show kIsWeb; // Added for platform check
+
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -15,12 +19,12 @@ class _CreateDonationRequestPageState extends State<CreateDonationRequestPage> {
   final _formKey = GlobalKey<FormState>();
 
   final TextEditingController _titleController = TextEditingController();
-  final TextEditingController _descriptionController = TextEditingController();
   final TextEditingController _quantityController = TextEditingController();
 
   String? _selectedCategory = 'Clothes';
   String? _detectedLocation;
   bool _isSubmitting = false;
+  bool _isDetectingLocation = true;
 
   final List<String> _categories = [
     'Clothes',
@@ -36,52 +40,40 @@ class _CreateDonationRequestPageState extends State<CreateDonationRequestPage> {
   final Map<String, Map<String, String>> _categoryHints = {
     'Clothes': {
       'title': 'E.g., Jacket, Shirt, Trousers',
-      'description': 'E.g., Size L, Color blue, Condition good',
       'quantity': 'E.g., Number of items (e.g., 3)',
     },
     'Food Supplies': {
       'title': 'E.g., Rice, Maize Flour, Beans',
-      'description': 'E.g., Weight in kg, Expiry date',
       'quantity': 'E.g., Weight in kilograms (e.g., 5)',
     },
     'Medical Supplies': {
       'title': 'E.g., First Aid Kit, Bandages',
-      'description': 'E.g., Quantity, Expiry date, Condition',
       'quantity': 'E.g., Number of items',
     },
     'School Supplies': {
       'title': 'E.g., Notebooks, Pens',
-      'description': 'E.g., Quantity, Condition',
       'quantity': 'E.g., Number of items',
     },
     'Hygiene Products': {
       'title': 'E.g., Soap, Sanitary Pads',
-      'description': 'E.g., Quantity, Expiry date',
       'quantity': 'E.g., Number of items or packs',
     },
     'Electronics': {
       'title': 'E.g., Laptop, Charger',
-      'description': 'E.g., Brand, Condition, Model',
       'quantity': 'E.g., Number of items',
     },
     'Furniture': {
       'title': 'E.g., Chair, Table',
-      'description': 'E.g., Condition, Material',
       'quantity': 'E.g., Number of items',
     },
     'Others': {
       'title': 'E.g., Specify item',
-      'description': 'E.g., Details about the item',
       'quantity': 'E.g., Number or weight',
     },
   };
 
   String get _titleHint => _categoryHints[_selectedCategory]?['title'] ?? 'Enter title';
-  String get _descriptionHint => _categoryHints[_selectedCategory]?['description'] ?? 'Enter description';
   String get _quantityHint => _categoryHints[_selectedCategory]?['quantity'] ?? 'Enter quantity';
-
-  // List to hold multiple requests before submission
-  List<Map<String, dynamic>> _pendingRequests = [];
 
   @override
   void initState() {
@@ -90,11 +82,15 @@ class _CreateDonationRequestPageState extends State<CreateDonationRequestPage> {
   }
 
   Future<void> _detectLocation() async {
+    print('Starting location detection...');
+    setState(() => _isDetectingLocation = true);
     try {
       final loc.Location location = loc.Location();
       bool serviceEnabled = await location.serviceEnabled();
+      print('Service enabled: $serviceEnabled');
       if (!serviceEnabled) {
         serviceEnabled = await location.requestService();
+        print('Service requested: $serviceEnabled');
         if (!serviceEnabled) {
           setState(() => _detectedLocation = 'Location services disabled');
           return;
@@ -102,8 +98,10 @@ class _CreateDonationRequestPageState extends State<CreateDonationRequestPage> {
       }
 
       loc.PermissionStatus permissionGranted = await location.hasPermission();
+      print('Permission status: $permissionGranted');
       if (permissionGranted == loc.PermissionStatus.denied) {
         permissionGranted = await location.requestPermission();
+        print('Permission requested: $permissionGranted');
         if (permissionGranted != loc.PermissionStatus.granted) {
           setState(() => _detectedLocation = 'Location permission denied');
           return;
@@ -111,125 +109,194 @@ class _CreateDonationRequestPageState extends State<CreateDonationRequestPage> {
       }
 
       final locationData = await location.getLocation();
+      print('Location data: ${locationData.latitude}, ${locationData.longitude}');
       await _reverseGeocode(locationData.latitude, locationData.longitude);
     } catch (e) {
-      setState(() {
-        _detectedLocation = 'Unable to detect location';
-      });
+      print('Error detecting location: $e');
+      setState(() => _detectedLocation = 'Unable to detect location');
+    } finally {
+      setState(() => _isDetectingLocation = false);
     }
   }
 
   Future<void> _reverseGeocode(double? lat, double? lng) async {
-    if (lat == null || lng == null) return;
+    print('Starting reverse geocode...');
+    if (lat == null || lng == null) {
+      print('Latitude or longitude is null');
+      return;
+    }
+
+    if (kIsWeb) {
+      await _reverseGeocodeWeb(lat, lng);
+    } else {
+      await _reverseGeocodeMobile(lat, lng);
+    }
+  }
+
+  Future<void> _reverseGeocodeWeb(double lat, double lng) async {
+    final apiKey = 'AIzaSyA48TwKXXwt0-SfH9UQoMtMwRxsPggSUbs';
+    final url = Uri.parse(
+        'https://maps.googleapis.com/maps/api/geocode/json?latlng=$lat,$lng&key=$apiKey');
 
     try {
-      List<Placemark> placemarks = await placemarkFromCoordinates(lat, lng);
-      if (placemarks.isNotEmpty) {
-        final place = placemarks.first;
+      final response = await http.get(url);
+      final data = jsonDecode(response.body);
+      print('Google Geocode API response: $data');
+
+      if (data['status'] == 'OK' && data['results'].isNotEmpty) {
+        final formattedAddress = data['results'][0]['formatted_address'];
+        
+        // Check if the address contains Plus Code (starts with a pattern like 7H73+2VW)
+        if (formattedAddress.contains(RegExp(r'[A-Z0-9]{4}\+[A-Z0-9]{3,4}')) || 
+            formattedAddress.contains(RegExp(r'[A-Z0-9]{5}\+[A-Z0-9]{3,4}'))) {
+          // Try to get a more readable address from other results
+          for (final result in data['results']) {
+            final address = result['formatted_address'];
+            if (!address.contains(RegExp(r'[A-Z0-9]{4}\+[A-Z0-9]{3,4}')) && 
+                !address.contains(RegExp(r'[A-Z0-9]{5}\+[A-Z0-9]{3,4}'))) {
+              setState(() {
+                _detectedLocation = address;
+              });
+              return;
+            }
+          }
+          // If all results contain Plus Codes, use a simplified version
+          setState(() {
+            _detectedLocation = 'Kampala, Uganda'; // Default to Kampala
+          });
+        } else {
+          setState(() {
+            _detectedLocation = formattedAddress;
+          });
+        }
+      } else {
         setState(() {
-          _detectedLocation =
-          '${place.name}, ${place.locality}, ${place.administrativeArea}, ${place.country}';
+          _detectedLocation = 'Kampala, Uganda'; // Default location
         });
       }
     } catch (e) {
+      print('Reverse geocode failed on web: $e');
       setState(() {
-        _detectedLocation = 'Unknown location';
+        _detectedLocation = 'Kampala, Uganda'; // Default location
       });
     }
   }
 
-  void _addRequestToList() {
-    if (!_formKey.currentState!.validate()) return;
+  Future<void> _reverseGeocodeMobile(double lat, double lng) async {
+    try {
+      List<Placemark> placemarks = await placemarkFromCoordinates(lat, lng);
+      print('Placemarks: $placemarks');
 
-    final newRequest = {
-      'title': _titleController.text.trim(),
-      'description': _descriptionController.text.trim(),
-      'quantity': int.parse(_quantityController.text),
-      'category': _selectedCategory,
-      'location': _detectedLocation,
-      'timestamp': Timestamp.now(),
-    };
+      if (placemarks.isNotEmpty) {
+        final place = placemarks.first;
+        final List<String> parts = [
+          place.name ?? '',
+          place.street ?? '',
+          place.subLocality ?? '',
+          place.locality ?? '',
+          place.administrativeArea ?? '',
+          place.country ?? ''
+        ].where((e) => e.trim().isNotEmpty).toList();
 
-    setState(() {
-      _pendingRequests.add(newRequest);
-      // Clear the form for next request
-      _titleController.clear();
-      _descriptionController.clear();
-      _quantityController.clear();
-      _selectedCategory = 'Clothes';
-    });
+        // If we have meaningful location data, use it
+        if (parts.isNotEmpty) {
+          setState(() {
+            _detectedLocation = parts.join(', ');
+          });
+        } else {
+          // Fallback to a readable location
+          setState(() {
+            _detectedLocation = 'Kampala, Uganda';
+          });
+        }
+      } else {
+        setState(() => _detectedLocation = 'Kampala, Uganda');
+      }
+    } catch (e) {
+      print('Reverse geocode failed on mobile: $e');
+      setState(() => _detectedLocation = 'Kampala, Uganda');
+    }
   }
 
-  Future<void> _submitAllRequests() async {
-    if (_pendingRequests.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('No requests to submit.')),
-      );
-      return;
-    }
+  Future<void> _submitRequest() async {
+    if (!_formKey.currentState!.validate()) return;
 
     setState(() => _isSubmitting = true);
     final user = FirebaseAuth.instance.currentUser;
+    
     try {
-      final batch = FirebaseFirestore.instance.batch();
-      final requestsCollection = FirebaseFirestore.instance.collection('donation_requests');
-      final notificationsCollection = FirebaseFirestore.instance.collection('admin_notifications'); // <-- updated here
+      // Create the donation request
+      final requestDoc = await FirebaseFirestore.instance.collection('donation_requests').add({
+        'title': _titleController.text.trim(),
+        'quantity': int.parse(_quantityController.text),
+        'category': _selectedCategory,
+        'location': _detectedLocation,
+        'organizationId': user?.uid,
+        'organizationEmail': user?.email,
+        'status': 'pending',
+        'timestamp': Timestamp.now(),
+      });
 
-      for (var req in _pendingRequests) {
-        final docRef = requestsCollection.doc();
-        batch.set(docRef, {
-          ...req,
-          'organizationId': user?.uid,
-          'status': 'pending',
-        });
-
-        // Admin notification for each request, with type = 'approval'
-        final notifDocRef = notificationsCollection.doc();
-        batch.set(notifDocRef, {
-          'userId': 'admin', // or your admin user id
-          'type': 'approval', // important for your admin page tabs
-          'title': 'New Donation Request',
-          'message': 'An organization has submitted a donation request: ${req['title']}',
-          'timestamp': Timestamp.now(),
-          'read': false,
-        });
+      // Update organization's location in their profile if they don't have one
+      if (user?.uid != null && _detectedLocation != null && _detectedLocation != 'Unable to detect location') {
+        final userDoc = await FirebaseFirestore.instance.collection('users').doc(user!.uid).get();
+        final userData = userDoc.data();
+        final currentLocation = userData?['location'];
+        
+        // Only update if organization doesn't have a location or has placeholder
+        if (currentLocation == null || 
+            currentLocation.toString().contains('Location to be detected') ||
+            currentLocation.toString().contains('GeoPoint')) {
+          await FirebaseFirestore.instance.collection('users').doc(user!.uid).update({
+            'location': _detectedLocation,
+          });
+          print('✅ Updated organization location to: $_detectedLocation');
+        }
       }
 
-      await batch.commit();
-
-      setState(() {
-        _pendingRequests.clear();
-        _isSubmitting = false;
+      // Create admin notification
+      await FirebaseFirestore.instance.collection('admin_notifications').add({
+        'userId': 'admin',
+        'type': 'approval',
+        'title': 'New Donation Request',
+        'message': 'Organization ${user?.email ?? 'Unknown'} has submitted a donation request: ${_titleController.text.trim()}',
+        'organizationEmail': user?.email ?? 'Unknown',
+        'requestId': requestDoc.id,
+        'timestamp': Timestamp.now(),
+        'read': false,
       });
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('All donation requests submitted successfully.')),
+          const SnackBar(
+            content: Text('Donation request submitted successfully!'),
+            backgroundColor: Colors.green,
+          ),
         );
+        
+        // Clear form
+        _titleController.clear();
+        _quantityController.clear();
+        _selectedCategory = 'Clothes';
+        
         Navigator.pop(context);
       }
     } catch (e) {
-      setState(() => _isSubmitting = false);
-      _showError('Failed to submit requests. Please try again.');
+      _showError('Failed to submit request. Please try again.');
+    } finally {
+      if (mounted) {
+        setState(() => _isSubmitting = false);
+      }
     }
   }
 
-  void _removeRequestAt(int index) {
-    setState(() {
-      _pendingRequests.removeAt(index);
-    });
-  }
-
   void _showError(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message)),
-    );
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
   }
 
   @override
   void dispose() {
     _titleController.dispose();
-    _descriptionController.dispose();
     _quantityController.dispose();
     super.dispose();
   }
@@ -245,20 +312,44 @@ class _CreateDonationRequestPageState extends State<CreateDonationRequestPage> {
         padding: const EdgeInsets.all(16),
         child: Column(
           children: [
+            // Improved Detected Location UI
+            Card(
+              color: Colors.deepPurple.shade50,
+              margin: const EdgeInsets.only(bottom: 16.0),
+              child: ListTile(
+                leading: _isDetectingLocation
+                    ? const SizedBox(
+                        width: 24,
+                        height: 24,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.location_on, color: Colors.deepPurple),
+                title: Text(
+                  _detectedLocation == null
+                      ? 'Detecting location...'
+                      : _detectedLocation!,
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    color: _detectedLocation == null || _detectedLocation == 'Unable to detect location'
+                        ? Colors.red
+                        : Colors.black,
+                  ),
+                ),
+                subtitle: _detectedLocation == 'Unable to detect location'
+                    ? const Text('Could not detect your location.', style: TextStyle(color: Colors.red))
+                    : null,
+                trailing: IconButton(
+                  icon: const Icon(Icons.refresh),
+                  onPressed: _isDetectingLocation ? null : _detectLocation,
+                  tooltip: 'Refresh location',
+                ),
+              ),
+            ),
             Expanded(
               child: Form(
                 key: _formKey,
                 child: ListView(
                   children: [
-                    if (_detectedLocation != null)
-                      Padding(
-                        padding: const EdgeInsets.only(bottom: 16),
-                        child: Text(
-                          'Detected Location: $_detectedLocation',
-                          style: const TextStyle(fontWeight: FontWeight.bold),
-                        ),
-                      ),
-
                     DropdownButtonFormField<String>(
                       value: _selectedCategory,
                       items: _categories
@@ -273,7 +364,6 @@ class _CreateDonationRequestPageState extends State<CreateDonationRequestPage> {
                       value == null || value.isEmpty ? 'Please select a category.' : null,
                     ),
                     const SizedBox(height: 16),
-
                     TextFormField(
                       controller: _titleController,
                       decoration: InputDecoration(
@@ -283,19 +373,6 @@ class _CreateDonationRequestPageState extends State<CreateDonationRequestPage> {
                       ),
                       validator: (value) =>
                       value == null || value.isEmpty ? 'Please enter a title' : null,
-                    ),
-                    const SizedBox(height: 16),
-
-                    TextFormField(
-                      controller: _descriptionController,
-                      maxLines: 4,
-                      decoration: InputDecoration(
-                        labelText: 'Description',
-                        hintText: _descriptionHint,
-                        border: const OutlineInputBorder(),
-                      ),
-                      validator: (value) =>
-                      value == null || value.isEmpty ? 'Please enter a description' : null,
                     ),
                     const SizedBox(height: 16),
 
@@ -315,48 +392,20 @@ class _CreateDonationRequestPageState extends State<CreateDonationRequestPage> {
                       },
                     ),
                     const SizedBox(height: 24),
-
                     ElevatedButton(
-                      onPressed: _addRequestToList,
-                      child: const Text('Add Request', style: TextStyle(fontSize: 16)),
+                      onPressed: _isSubmitting ? null : _submitRequest,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.deepPurple,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                      ),
+                      child: _isSubmitting
+                          ? const CircularProgressIndicator(color: Colors.white)
+                          : const Text('Submit Request', style: TextStyle(fontSize: 16)),
                     ),
-
-                    const SizedBox(height: 24),
-
-                    if (_pendingRequests.isNotEmpty)
-                      const Text(
-                        'Requests to Submit:',
-                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
-                      ),
-
-                    if (_pendingRequests.isNotEmpty)
-                      ListView.builder(
-                        shrinkWrap: true,
-                        physics: const NeverScrollableScrollPhysics(),
-                        itemCount: _pendingRequests.length,
-                        itemBuilder: (context, index) {
-                          final req = _pendingRequests[index];
-                          return ListTile(
-                            title: Text(req['title'] ?? ''),
-                            subtitle:
-                            Text('Quantity: ${req['quantity']} | Category: ${req['category']}'),
-                            trailing: IconButton(
-                              icon: const Icon(Icons.delete, color: Colors.red),
-                              onPressed: () => _removeRequestAt(index),
-                            ),
-                          );
-                        },
-                      ),
                   ],
                 ),
               ),
-            ),
-
-            ElevatedButton(
-              onPressed: _isSubmitting ? null : _submitAllRequests,
-              child: _isSubmitting
-                  ? const CircularProgressIndicator(color: Colors.white)
-                  : const Text('Submit All Requests', style: TextStyle(fontSize: 16)),
             ),
           ],
         ),

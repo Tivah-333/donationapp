@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'org_status_screen.dart';
 
 class WelcomeScreen extends StatefulWidget {
   const WelcomeScreen({super.key});
@@ -46,9 +47,30 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
           Navigator.pushReplacementNamed(context, '/donor');
           break;
         case 'Organization':
-          if (status == 'pending' || status == 'rejected') {
-            Navigator.pushReplacementNamed(context, '/orgStatus');
+          if (status == 'rejected') {
+            // Immediately log out rejected organizations and show error
+            await FirebaseAuth.instance.signOut();
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('Your organization has been rejected. You cannot access the app.'),
+                  backgroundColor: Colors.red,
+                  duration: Duration(seconds: 3),
+                ),
+              );
+              Navigator.pushReplacementNamed(context, '/login');
+            }
+            return; // Exit early for rejected organizations
+          } else if (status == 'pending') {
+            // Show pending status screen
+            Navigator.pushReplacement(
+              context,
+              MaterialPageRoute(
+                builder: (context) => OrgStatusScreen(status: status),
+              ),
+            );
           } else {
+            // Approved organizations can proceed
             Navigator.pushReplacementNamed(context, '/organization');
           }
           break;

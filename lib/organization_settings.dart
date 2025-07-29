@@ -6,6 +6,8 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:geolocator/geolocator.dart';
+import 'help_faq_page.dart';
+import 'widgets/password_change_dialog.dart';
 
 class OrganizationSettingsPage extends StatefulWidget {
   const OrganizationSettingsPage({super.key});
@@ -21,15 +23,16 @@ class _OrganizationSettingsPageState extends State<OrganizationSettingsPage> {
   final TextEditingController nameController = TextEditingController();
   final TextEditingController contactController = TextEditingController();
 
-  final TextEditingController oldPasswordController = TextEditingController();
-  final TextEditingController newPasswordController = TextEditingController();
-  final TextEditingController confirmPasswordController = TextEditingController();
+
 
   String? profileImageUrl;
   String? location;
 
   bool isDarkTheme = false;
-  bool showPasswordFields = false; // <<<<< controls showing password fields
+
+  bool notificationsEnabled = true;
+  bool emailNotificationsEnabled = true;
+  bool pushNotificationsEnabled = true;
 
   @override
   void initState() {
@@ -47,6 +50,9 @@ class _OrganizationSettingsPageState extends State<OrganizationSettingsPage> {
         contactController.text = data['contact'] ?? '';
         profileImageUrl = data['profileImageUrl'];
         isDarkTheme = data['isDarkTheme'] ?? false;
+        notificationsEnabled = data['notificationsEnabled'] ?? true;
+        emailNotificationsEnabled = data['emailNotificationsEnabled'] ?? true;
+        pushNotificationsEnabled = data['pushNotificationsEnabled'] ?? true;
         setState(() {});
       }
     }
@@ -59,6 +65,9 @@ class _OrganizationSettingsPageState extends State<OrganizationSettingsPage> {
       'name': nameController.text.trim(),
       'contact': contactController.text.trim(),
       'isDarkTheme': isDarkTheme,
+      'notificationsEnabled': notificationsEnabled,
+      'emailNotificationsEnabled': emailNotificationsEnabled,
+      'pushNotificationsEnabled': pushNotificationsEnabled,
     });
 
     ScaffoldMessenger.of(context).showSnackBar(
@@ -67,45 +76,10 @@ class _OrganizationSettingsPageState extends State<OrganizationSettingsPage> {
   }
 
   Future<void> _changePassword() async {
-    final oldPassword = oldPasswordController.text.trim();
-    final newPassword = newPasswordController.text.trim();
-    final confirmPassword = confirmPasswordController.text.trim();
-
-    if (newPassword != confirmPassword) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('New passwords do not match')),
-      );
-      return;
-    }
-
-    if (user == null || user!.email == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('No user is signed in')),
-      );
-      return;
-    }
-
-    try {
-      final cred = EmailAuthProvider.credential(email: user!.email!, password: oldPassword);
-      await user!.reauthenticateWithCredential(cred);
-      await user!.updatePassword(newPassword);
-
-      oldPasswordController.clear();
-      newPasswordController.clear();
-      confirmPasswordController.clear();
-
-      setState(() {
-        showPasswordFields = false; // hide fields after success
-      });
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Password updated successfully!')),
-      );
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error: ${e.toString()}')),
-      );
-    }
+    await showDialog(
+      context: context,
+      builder: (context) => const PasswordChangeDialog(),
+    );
   }
 
   Future<void> _deleteAccount() async {
@@ -156,9 +130,18 @@ class _OrganizationSettingsPageState extends State<OrganizationSettingsPage> {
         location = '📍 ${position.latitude.toStringAsFixed(2)}, ${position.longitude.toStringAsFixed(2)}';
       });
 
-      await FirebaseFirestore.instance.collection('users').doc(user!.uid).update({
-        'location': GeoPoint(position.latitude, position.longitude),
-      });
+      // Convert coordinates to a readable location string
+      final locationString = '📍 ${position.latitude.toStringAsFixed(2)}, ${position.longitude.toStringAsFixed(2)}';
+      // Only update location if user manually triggered location detection
+      // Don't auto-update during app initialization
+      if (mounted) {
+        await FirebaseFirestore.instance.collection('users').doc(user!.uid).update({
+          'location': locationString,
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Location updated successfully')),
+        );
+      }
     } catch (e) {
       setState(() => location = 'Failed to get location');
     }
@@ -182,13 +165,59 @@ class _OrganizationSettingsPageState extends State<OrganizationSettingsPage> {
     }
   }
 
+  Future<void> _deleteProfilePicture() async {
+    if (user == null || profileImageUrl == null) return;
+
+    // Show confirmation dialog
+    final shouldDelete = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete Profile Picture'),
+        content: const Text('Are you sure you want to delete your profile picture?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+
+    if (shouldDelete != true) return;
+
+    try {
+      // Delete from Firebase Storage
+      final ref = FirebaseStorage.instance.ref().child('profile_pics').child('${user!.uid}.jpg');
+      await ref.delete();
+
+      // Update Firestore to remove the profile image URL
+      await FirebaseFirestore.instance.collection('users').doc(user!.uid).update({
+        'profileImageUrl': null,
+      });
+
+      setState(() {
+        profileImageUrl = null;
+      });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Profile picture deleted')),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error deleting profile picture: $e')),
+      );
+    }
+  }
+
   @override
   void dispose() {
     nameController.dispose();
     contactController.dispose();
-    oldPasswordController.dispose();
-    newPasswordController.dispose();
-    confirmPasswordController.dispose();
     super.dispose();
   }
 
@@ -196,118 +225,115 @@ class _OrganizationSettingsPageState extends State<OrganizationSettingsPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Settings'),
-        backgroundColor: Colors.deepPurple, // deep purple app bar
+        title: const Text('Organization Settings'),
+        backgroundColor: Colors.deepPurple,
       ),
       body: ListView(
-        padding: const EdgeInsets.all(16),
         children: [
-          const Text('Account Management', style: TextStyle(fontWeight: FontWeight.bold)),
-          const SizedBox(height: 10),
-
-          Center(
-            child: Column(
+          // Profile Section
+          ListTile(
+            leading: CircleAvatar(
+              backgroundImage: profileImageUrl != null ? NetworkImage(profileImageUrl!) : null,
+              child: profileImageUrl == null ? const Icon(Icons.person) : null,
+            ),
+            title: Text(nameController.text),
+            subtitle: Text(user?.email ?? ''),
+            trailing: Row(
+              mainAxisSize: MainAxisSize.min,
               children: [
-                CircleAvatar(
-                  radius: 50,
-                  backgroundImage: profileImageUrl != null ? NetworkImage(profileImageUrl!) : null,
-                  child: profileImageUrl == null ? const Icon(Icons.person, size: 50) : null,
-                ),
-                TextButton(
+                IconButton(
+                  icon: const Icon(Icons.edit),
                   onPressed: _changeProfilePicture,
-                  child: const Text('Change Profile Picture'),
+                  tooltip: 'Change Photo',
                 ),
+                if (profileImageUrl != null)
+                  IconButton(
+                    icon: const Icon(Icons.delete, color: Colors.red),
+                    onPressed: _deleteProfilePicture,
+                    tooltip: 'Remove Photo',
+                  ),
               ],
             ),
           ),
+          const Divider(),
 
-          const SizedBox(height: 12),
-
-          Form(
-            key: _formKey,
-            child: Column(
-              children: [
-                TextFormField(
-                  controller: nameController,
-                  decoration: const InputDecoration(labelText: 'Organization Name'),
-                  validator: (value) => value!.isEmpty ? 'Required' : null,
-                ),
-                const SizedBox(height: 12),
-                TextFormField(
-                  controller: contactController,
-                  decoration: const InputDecoration(labelText: 'Contact Info'),
-                  validator: (value) => value!.isEmpty ? 'Required' : null,
-                ),
-
-                const SizedBox(height: 24),
-
-                // Change Password toggle button
-                Align(
-                  alignment: Alignment.centerLeft,
-                  child: TextButton.icon(
-                    icon: Icon(showPasswordFields ? Icons.keyboard_arrow_up : Icons.lock),
-                    label: const Text('Change Password'),
-                    onPressed: () {
-                      setState(() {
-                        showPasswordFields = !showPasswordFields;
-                      });
-                    },
-                  ),
-                ),
-
-                if (showPasswordFields) ...[
-                  TextFormField(
-                    controller: oldPasswordController,
-                    decoration: const InputDecoration(labelText: 'Old Password'),
-                    obscureText: true,
-                  ),
-                  const SizedBox(height: 12),
-                  TextFormField(
-                    controller: newPasswordController,
-                    decoration: const InputDecoration(labelText: 'New Password'),
-                    obscureText: true,
-                  ),
-                  const SizedBox(height: 12),
-                  TextFormField(
-                    controller: confirmPasswordController,
-                    decoration: const InputDecoration(labelText: 'Confirm New Password'),
-                    obscureText: true,
-                  ),
-                  const SizedBox(height: 12),
-                  ElevatedButton.icon(
-                    icon: const Icon(Icons.lock_open),
-                    label: const Text('Update Password'),
-                    onPressed: _changePassword,
-                  ),
-                  const SizedBox(height: 24),
-                ],
-
-                ElevatedButton.icon(
-                  icon: const Icon(Icons.save),
-                  label: const Text('Save Changes'),
-                  onPressed: _updateProfile,
-                ),
-
-                const SizedBox(height: 16),
-
-                ElevatedButton.icon(
-                  icon: const Icon(Icons.delete),
-                  label: const Text('Delete Account'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.red.shade700,
-                    foregroundColor: Colors.white,
-                  ),
-                  onPressed: _deleteAccount,
-                ),
-              ],
+          // Notification Settings
+          const Padding(
+            padding: EdgeInsets.all(16.0),
+            child: Text(
+              'Notification Settings',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
             ),
           ),
-
-          const Divider(height: 32),
-
-          const Text('Theme Settings', style: TextStyle(fontWeight: FontWeight.bold)),
           SwitchListTile(
-            title: const Text('Dark Theme'),
+            title: const Text('Enable Notifications'),
+            subtitle: const Text('Receive notifications about donations and updates'),
+            value: notificationsEnabled,
+            onChanged: (val) {
+              setState(() {
+                notificationsEnabled = val;
+                if (!val) {
+                  emailNotificationsEnabled = false;
+                  pushNotificationsEnabled = false;
+                }
+              });
+            },
+          ),
+          SwitchListTile(
+            title: const Text('Email Notifications'),
+            subtitle: const Text('Receive notifications via email'),
+            value: emailNotificationsEnabled,
+            onChanged: (val) {
+              setState(() {
+                emailNotificationsEnabled = val;
+              });
+            },
+          ),
+          SwitchListTile(
+            title: const Text('Push Notifications'),
+            subtitle: const Text('Receive push notifications on your device'),
+            value: pushNotificationsEnabled,
+            onChanged: (val) {
+              setState(() {
+                pushNotificationsEnabled = val;
+              });
+            },
+          ),
+          const Divider(),
+
+          // Account Settings
+          const Padding(
+            padding: EdgeInsets.all(16.0),
+            child: Text(
+              'Account Settings',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
+          ),
+          ListTile(
+            leading: const Icon(Icons.edit),
+            title: const Text('Edit Profile'),
+            onTap: () {
+              // Navigate to profile editing page
+            },
+          ),
+          ListTile(
+            leading: const Icon(Icons.lock),
+            title: const Text('Change Password'),
+            onTap: _changePassword,
+          ),
+          const Divider(),
+
+          // App Settings
+          const Padding(
+            padding: EdgeInsets.all(16.0),
+            child: Text(
+              'App Settings',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
+          ),
+          SwitchListTile(
+            title: const Text('Dark Mode'),
+            subtitle: const Text('Use dark theme'),
             value: isDarkTheme,
             onChanged: (val) async {
               setState(() {
@@ -320,21 +346,47 @@ class _OrganizationSettingsPageState extends State<OrganizationSettingsPage> {
               }
             },
           ),
+          const Divider(),
 
-          const Divider(height: 32),
+          // Support & Help
+          const Padding(
+            padding: EdgeInsets.all(16.0),
+            child: Text(
+              'Support & Help',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
+          ),
+          ListTile(
+            leading: const Icon(Icons.help),
+            title: const Text('Help & FAQ'),
+            onTap: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const HelpFAQPage()),
+              );
+            },
+          ),
+          ListTile(
+            leading: const Icon(Icons.support_agent),
+            title: const Text('Contact Support'),
+            onTap: () {
+              Navigator.pushNamed(context, '/contactSupport');
+            },
+          ),
+          const Divider(),
 
-          const Text('Location Settings', style: TextStyle(fontWeight: FontWeight.bold)),
-          const SizedBox(height: 8),
-          Row(
-            children: [
-              Expanded(
-                child: Text(location ?? 'Getting location...'),
-              ),
-              IconButton(
-                icon: const Icon(Icons.refresh),
-                onPressed: _getLocation,
-              ),
-            ],
+          // Danger Zone
+          const Padding(
+            padding: EdgeInsets.all(16.0),
+            child: Text(
+              'Danger Zone',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.red),
+            ),
+          ),
+          ListTile(
+            leading: const Icon(Icons.delete, color: Colors.red),
+            title: const Text('Delete Account', style: TextStyle(color: Colors.red)),
+            onTap: _deleteAccount,
           ),
         ],
       ),

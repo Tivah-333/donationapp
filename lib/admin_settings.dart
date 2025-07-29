@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'widgets/password_change_dialog.dart';
 
 class AdminSettingsPage extends StatefulWidget {
   final bool isDarkMode;
@@ -40,8 +41,11 @@ class _AdminSettingsPageState extends State<AdminSettingsPage> {
           ListTile(
             leading: const Icon(Icons.lock),
             title: const Text('Change Password'),
-            onTap: () {
-              // TODO: Navigate to change password screen
+            onTap: () async {
+              await showDialog(
+                context: context,
+                builder: (context) => const PasswordChangeDialog(),
+              );
             },
           ),
 

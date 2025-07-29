@@ -27,3 +27,5 @@ app.use('/api/reports', reportRoutes);
 app.use('/api/upload-image', imageRoutes);
 
 exports.api = functions.https.onRequest(app);
+
+// Email functionality removed - using Firebase default only

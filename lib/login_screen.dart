@@ -19,6 +19,8 @@ class _LoginScreenState extends State<LoginScreen> {
   final _passwordController = TextEditingController();
   bool _isLoading = false;
   bool _obscurePassword = true;
+  bool _showForgotPassword = false; // Track if we should show forgot password
+
 
   Future<void> _login() async {
     if (!_formKey.currentState!.validate()) return;
@@ -85,6 +87,13 @@ class _LoginScreenState extends State<LoginScreen> {
         errorMessage = 'Too many login attempts. Please try again later';
       } else if (e.code == 'network-request-failed') {
         errorMessage = 'No internet connection. Please check your network';
+      }
+      
+      // Show forgot password option for wrong password errors
+      if (e.code == 'wrong-password' || e.code == 'user-not-found') {
+        setState(() {
+          _showForgotPassword = true;
+        });
       }
 
       ScaffoldMessenger.of(context).showSnackBar(
@@ -191,10 +200,12 @@ class _LoginScreenState extends State<LoginScreen> {
                 onPressed: () => Navigator.pushNamed(context, '/signup'),
                 child: const Text("Don't have an account? Sign Up"),
               ),
-              TextButton(
-                onPressed: () => Navigator.pushNamed(context, '/forgot-password'),
-                child: const Text('Forgot Password?'),
-              ),
+              // Only show forgot password after failed login attempt
+              if (_showForgotPassword)
+                TextButton(
+                  onPressed: () => Navigator.pushNamed(context, '/forgot-password'),
+                  child: const Text('Forgot Password?'),
+                ),
             ],
           ),
         ),

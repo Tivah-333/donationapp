@@ -12,7 +12,7 @@ import 'donor_home.dart';
 import 'organization_home.dart';
 import 'admin_home.dart';
 import 'manage_users.dart';
-import 'manage_donations.dart';
+
 import 'welcome_screen.dart';
 import 'view_reports.dart';
 import 'org_status_screen.dart';
@@ -35,20 +35,22 @@ import 'donor_report_problem_page.dart';
 import 'donor_settings.dart';
 import 'donor_profile.dart';
 import 'forgot_password_screen.dart';
+import 'distribute_donations.dart';
+import 'organization_donation_requests.dart';
+import 'admin_donation_requests.dart';
+import 'donor_notifications_page.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  if (kIsWeb) {
-    await Firebase.initializeApp(
-      options: DefaultFirebaseOptions.currentPlatform,
-    );
+  await Firebase.initializeApp(
+    options: DefaultFirebaseOptions.currentPlatform,
+  );
 
+  if (kIsWeb) {
     // Connect to Firebase emulators when running in Chrome/web
     FirebaseFirestore.instance.useFirestoreEmulator('localhost', 8080);
     FirebaseAuth.instance.useAuthEmulator('localhost', 9099);
-  } else {
-    await Firebase.initializeApp();
   }
 
   runApp(const CharityBridgeApp());
@@ -102,7 +104,8 @@ class _CharityBridgeAppState extends State<CharityBridgeApp> {
         '/organization': (context) => const OrganizationHome(),
         '/admin': (context) => const AdminHome(),
         '/manageUsers': (context) => const ManageUsersPage(),
-        '/manageDonations': (context) => const ManageDonations(),
+
+        '/distributeDonations': (context) => const DistributeDonationsPage(),
         '/viewReports': (context) => const ViewReportsPage(),
         '/orgStatus': (context) => const OrgStatusScreen(status: 'pending'),
         '/admin/org-approvals': (context) => const AdminOrgApprovalDashboard(),
@@ -112,6 +115,7 @@ class _CharityBridgeAppState extends State<CharityBridgeApp> {
         ),
         '/admin/notifications': (context) => const AdminNotificationsPage(),
         '/admin/issue-reports': (context) => const AdminIssueReportsPage(),
+        '/admin/donation-requests': (context) => const AdminDonationRequestsPage(),
         '/admin/profile': (context) => const AdminProfilePage(),
         '/organization/statistics': (context) =>
         const DonationStatisticsPage(),
@@ -122,14 +126,18 @@ class _CharityBridgeAppState extends State<CharityBridgeApp> {
         '/contactSupport': (context) => const OrgContactSupportPage(),
         '/organization/notifications': (context) =>
         const OrgNotificationsPage(),
+        '/organization/donation-requests': (context) =>
+        const OrganizationDonationRequestsPage(),
         '/donate': (context) => const MakeDonationPage(),
         '/donor/history': (context) => const DonorsDonationHistoryPage(),
-        '/donor/notifications': (context) => const DonorNotificationSetting(),
+        '/donor/notifications': (context) => const DonorNotificationsPage(),
         '/donor/support': (context) => const DonorContactSupportPage(),
         '/donor/report': (context) => const DonorReportProblemPage(),
         '/donor/settings': (context) => const DonorSettingsPage(),
         '/donor/profile': (context) => const DonorProfilePage(),
         '/forgot-password': (context) => ForgotPasswordScreen(),
+        '/distributeDonations': (context) => const DistributeDonationsPage(),
+        
       },
     );
   }

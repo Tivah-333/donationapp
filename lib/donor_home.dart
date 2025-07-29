@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'widgets/profile_picture_widget.dart';
 
 class DonorHome extends StatelessWidget {
   const DonorHome({super.key});
@@ -16,13 +17,13 @@ class DonorHome extends StatelessWidget {
           style: TextStyle(color: Colors.black),
         ),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.person),
-            tooltip: 'Profile',
-            onPressed: () {
+          ProfilePictureWidget(
+            size: 32,
+            onTap: () {
               Navigator.pushNamed(context, '/donor/profile');
             },
           ),
+          const SizedBox(width: 8),
           IconButton(
             icon: const Icon(Icons.logout),
             tooltip: 'Logout',

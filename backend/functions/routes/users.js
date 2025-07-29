@@ -148,12 +148,15 @@ router.post('/issues', async (req, res) => {
     const issue = {
       fullMessage: description,  // ✅ full message
       shortMessage: `Problem reported by ${req.user.email}`,  // ✅ short summary
+      message: userData?.role === 'Donor'
+        ? `Donor ${req.user.email} has reported a problem: ${description}`
+        : `Organization ${req.user.email} has reported a problem: ${description}`,
       imageUrl: imageUrl || null,
       senderEmail: req.user.email,
       senderId: req.user.uid,
       senderRole: userData?.role?.toLowerCase() || 'unknown',
-      status: 'resolved',
-      read: true,
+      status: 'unresolved',
+      read: false,
       showDetails: true,
       timestamp: timestamp
         ? admin.firestore.Timestamp.fromDate(new Date(timestamp))
@@ -161,10 +164,10 @@ router.post('/issues', async (req, res) => {
       type: 'issue_report',
       title: userData?.role === 'Donor'
         ? 'New Issue Report from Donor'
-        : 'New Issue Report',
+        : 'New Issue Report from Organization',
     };
 
-    const notificationRef = await db.collection('notifications').add(issue);
+    const notificationRef = await db.collection('admin_notifications').add(issue);
 
     await admin.messaging().send({
       topic: 'admin_notifications',

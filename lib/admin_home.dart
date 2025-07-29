@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'widgets/profile_picture_widget.dart';
 
 class AdminHome extends StatelessWidget {
   const AdminHome({super.key});
@@ -11,13 +12,13 @@ class AdminHome extends StatelessWidget {
         title: const Text('Admin Dashboard'),
         backgroundColor: Colors.deepPurple, // ✅ AppBar colored purple
         actions: [
-          IconButton(
-            icon: const Icon(Icons.account_circle),
-            tooltip: 'Profile',
-            onPressed: () {
+          ProfilePictureWidget(
+            size: 32,
+            onTap: () {
               Navigator.pushNamed(context, '/admin/profile');
             },
           ),
+          const SizedBox(width: 8),
           IconButton(
             icon: const Icon(Icons.logout),
             tooltip: 'Logout',
@@ -39,12 +40,13 @@ class AdminHome extends StatelessWidget {
                 padding: const EdgeInsets.symmetric(vertical: 16),
               ),
             ),
+
             const SizedBox(height: 16),
             ElevatedButton.icon(
-              icon: const Icon(Icons.favorite),
-              label: const Text('Manage Donations'),
+              icon: const Icon(Icons.local_shipping),
+              label: const Text('Distribute to Organizations'),
               onPressed: () {
-                Navigator.pushNamed(context, '/manageDonations');
+                Navigator.pushNamed(context, '/distributeDonations');
               },
               style: ElevatedButton.styleFrom(
                 padding: const EdgeInsets.symmetric(vertical: 16),
@@ -72,17 +74,8 @@ class AdminHome extends StatelessWidget {
                 padding: const EdgeInsets.symmetric(vertical: 16),
               ),
             ),
-            const SizedBox(height: 16),
-            ElevatedButton.icon(
-              icon: const Icon(Icons.report_problem),
-              label: const Text('Issue Reports'),
-              onPressed: () {
-                Navigator.pushNamed(context, '/admin/issue-reports');
-              },
-              style: ElevatedButton.styleFrom(
-                padding: const EdgeInsets.symmetric(vertical: 16),
-              ),
-            ),
+
+
             const SizedBox(height: 16),
             ElevatedButton.icon(
               icon: const Icon(Icons.notifications),
@@ -105,6 +98,9 @@ class AdminHome extends StatelessWidget {
                 padding: const EdgeInsets.symmetric(vertical: 16),
               ),
             ),
+
+
+
           ],
         ),
       ),

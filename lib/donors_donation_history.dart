@@ -39,27 +39,69 @@ class _DonorsDonationHistoryPageState extends State<DonorsDonationHistoryPage> {
       final querySnapshot = await FirebaseFirestore.instance
           .collection('donations')
           .where('donorId', isEqualTo: user.uid)
-          .orderBy('timestamp', descending: true)
           .get();
 
-      final donations = querySnapshot.docs.map((doc) {
+      final List<Map<String, dynamic>> donations = [];
+
+      for (final doc in querySnapshot.docs) {
         final data = doc.data();
-        return {
+        
+        // Get total quantity from categorySummary or calculate from items
+        int totalQuantity = 0;
+        if (data['categorySummary'] != null) {
+          final categorySummary = Map<String, dynamic>.from(data['categorySummary']);
+          totalQuantity = categorySummary.values.fold(0, (sum, qty) => sum + (qty as int));
+        } else if (data['totalQuantity'] != null) {
+          totalQuantity = data['totalQuantity'] as int;
+        } else {
+          // Fallback: try to get from items collection
+          try {
+            final itemsSnapshot = await doc.reference.collection('items').get();
+            for (final itemDoc in itemsSnapshot.docs) {
+              final itemData = itemDoc.data();
+              totalQuantity += itemData['quantity'] as int? ?? 0;
+            }
+          } catch (e) {
+            print('Error fetching items for donation ${doc.id}: $e');
+          }
+        }
+
+        // Get categories
+        List<String> categories = [];
+        if (data['categories'] != null) {
+          categories = List<String>.from(data['categories']);
+        } else if (data['category'] != null) {
+          categories = [data['category'] as String];
+        }
+
+        donations.add({
           'id': doc.id,
           'date': (data['timestamp'] as Timestamp?)?.toDate().toString().split(' ')[0] ?? 'Unknown date',
-          'category': data['category'] ?? 'Unknown',
-          'quantity': _parseQuantity(data['quantity']),
+          'categories': categories,
+          'category': categories.isNotEmpty ? categories.first : 'Unknown',
+          'quantity': totalQuantity,
           'status': data['status'] ?? 'pending',
-          'title': data['title'] ?? 'No title',
+          'title': data['title'] ?? 'Donation',
           'deliveryOption': data['deliveryOption'] ?? 'Unknown',
-        };
-      }).toList();
+          'location': data['location'] ?? 'Unknown location',
+          'pickupStation': data['pickupStation'],
+          'assignedTo': data['assignedTo'],
+        });
+      }
+
+      // Sort by timestamp manually
+      donations.sort((a, b) {
+        final aDate = a['date'] as String;
+        final bDate = b['date'] as String;
+        return bDate.compareTo(aDate); // Most recent first
+      });
 
       setState(() {
         _donations = donations;
         _isLoading = false;
       });
     } catch (e) {
+      print('Error fetching donations: $e');
       setState(() {
         _isLoading = false;
         _errorMessage = 'Unable to load your donation history. '

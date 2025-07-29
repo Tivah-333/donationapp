@@ -86,136 +86,85 @@ class _DonationDetailsPageState extends State<DonationDetailsPage> {
         title: const Text('Donation Details'),
         backgroundColor: Colors.deepPurple,
       ),
-      body: FutureBuilder<List<QueryDocumentSnapshot>>(
-        future: _itemsFuture,
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
+      body: StreamBuilder<DocumentSnapshot>(
+        stream: FirebaseFirestore.instance
+            .collection('donations')
+            .doc(widget.donationId)
+            .snapshots(),
+        builder: (context, donationSnapshot) {
+          if (donationSnapshot.connectionState == ConnectionState.waiting) {
             return const Center(child: CircularProgressIndicator());
           }
 
-          if (!snapshot.hasData || snapshot.data!.isEmpty) {
-            return const Center(child: Text('No donation items found.'));
+          if (!donationSnapshot.hasData || !donationSnapshot.data!.exists) {
+            return const Center(child: Text('Donation not found.'));
           }
 
-          final items = snapshot.data!;
+          final donationData = donationSnapshot.data!.data() as Map<String, dynamic>;
+          
+          // Show assigned quantity and category if available
+          final assignedQuantity = donationData['assignedQuantity'] as int?;
+          final assignedCategory = donationData['assignedCategory'] as String?;
+          final originalCategorySummary = donationData['originalCategorySummary'] as Map<String, dynamic>?;
+          final categorySummary = donationData['categorySummary'] as Map<String, dynamic>?;
 
-          return ListView.builder(
+          return SingleChildScrollView(
             padding: const EdgeInsets.all(16),
-            itemCount: items.length,
-            itemBuilder: (context, index) {
-              final item = items[index];
-              final itemId = item.id;
-              final data = item.data() as Map<String, dynamic>;
-
-              final category = data['category'] ?? 'N/A';
-              final title = data['title'] ?? 'N/A';
-              final description = data['description'] ?? 'N/A';
-              final quantity = data['quantity']?.toString() ?? 'N/A';
-              final deliveryOption = (data['deliveryOption'] ?? 'drop-off').toLowerCase();
-              final status = data['status'] ?? 'pending';
-
-              final decision = _decisions[itemId];
-              final deliveryStatus = _deliveryStatuses[itemId];
-              final finalized = _finalizedItems.contains(itemId) || status != 'pending';
-
-              // Determine delivery status options dynamically
-              final deliveryStatusOptions = deliveryOption == 'pickup'
-                  ? ['Delivered', 'Not Delivered']
-                  : ['Received', 'Not Received'];
-
-              return Card(
-                margin: const EdgeInsets.only(bottom: 20),
-                elevation: 4,
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text('Item ${index + 1}',
-                          style: const TextStyle(
-                              fontSize: 18, fontWeight: FontWeight.bold)),
-                      const SizedBox(height: 8),
-                      _buildDetail('Category', category),
-                      _buildDetail('Title', title),
-                      _buildDetail('Description', description),
-                      _buildDetail('Quantity', quantity),
-                      _buildDetail('Delivery Option', deliveryOption),
-                      _buildDetail('Status', status),
-
-                      // Here is the added delivery confirmation detail line:
-                      _buildDetail('Delivery Confirmation', data['deliveryConfirmation'] ?? 'Not yet confirmed'),
-
-                      const SizedBox(height: 16),
-
-                      // Approve/Reject Buttons
-                      if (!finalized && decision == null)
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                          children: [
-                            ElevatedButton(
-                              onPressed: () => _updateItemDecision(itemId, 'approved'),
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: Colors.green,
-                                minimumSize: const Size(120, 50),
-                              ),
-                              child: const Text('Approve', style: TextStyle(fontSize: 16)),
-                            ),
-                            ElevatedButton(
-                              onPressed: () => _updateItemDecision(itemId, 'rejected'),
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: Colors.red,
-                                minimumSize: const Size(120, 50),
-                              ),
-                              child: const Text('Reject', style: TextStyle(fontSize: 16)),
-                            ),
-                          ],
-                        ),
-
-                      // Delivery Status + Submit
-                      if (!finalized && decision != null) ...[
-                        const SizedBox(height: 16),
-                        const Text('Delivery Status:',
-                            style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                        DropdownButton<String>(
-                          value: deliveryStatus,
-                          hint: const Text('Select delivery status'),
-                          items: deliveryStatusOptions.map((status) {
-                            return DropdownMenuItem(
-                              value: status,
-                              child: Text(status),
-                            );
-                          }).toList(),
-                          onChanged: (value) => _updateDeliveryStatus(itemId, value),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Donation Overview Card
+                Card(
+                  margin: const EdgeInsets.only(bottom: 20),
+                  elevation: 4,
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Assigned Donation Details',
+                          style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
                         ),
                         const SizedBox(height: 16),
-                        ElevatedButton(
-                          onPressed: () => _finalizeDecision(itemId),
-                          style: ElevatedButton.styleFrom(
-                            minimumSize: const Size(double.infinity, 50),
-                          ),
-                          child: const Text('Submit Decision', style: TextStyle(fontSize: 16)),
-                        ),
+                        
+                        if (assignedQuantity != null && assignedCategory != null) ...[
+                          _buildDetail('Assigned Category', assignedCategory),
+                          _buildDetail('Assigned Quantity', assignedQuantity.toString()),
+                          _buildDetail('Donor Email', donationData['donorEmail'] ?? 'Unknown'),
+                          _buildDetail('Assigned At', _formatTimestamp(donationData['assignedAt'])),
+                          _buildDetail('Delivery Method', donationData['deliveryOption'] ?? 'Unknown'),
+                          if (donationData['pickupStation'] != null)
+                            _buildDetail('Pickup Station', donationData['pickupStation']),
+                          _buildDetail('Location', donationData['location'] ?? 'Unknown'),
+                        ] else ...[
+                          // Show original donation details if not assigned
+                          _buildDetail('Categories', (donationData['categories'] as List<dynamic>?)?.join(', ') ?? 'Unknown'),
+                          _buildDetail('Total Quantity', (donationData['totalQuantity'] ?? 0).toString()),
+                          _buildDetail('Donor Email', donationData['donorEmail'] ?? 'Unknown'),
+                          _buildDetail('Delivery Method', donationData['deliveryOption'] ?? 'Unknown'),
+                          if (donationData['pickupStation'] != null)
+                            _buildDetail('Pickup Station', donationData['pickupStation']),
+                          _buildDetail('Location', donationData['location'] ?? 'Unknown'),
+                        ],
                       ],
-
-                      // Finalized message
-                      if (finalized)
-                        const Padding(
-                          padding: EdgeInsets.only(top: 12),
-                          child: Text(
-                            'Decision submitted',
-                            style: TextStyle(
-                                color: Colors.green, fontWeight: FontWeight.bold),
-                          ),
-                        )
-                    ],
+                    ),
                   ),
                 ),
-              );
-            },
+              ],
+            ),
           );
         },
       ),
     );
+  }
+
+  String _formatTimestamp(dynamic timestamp) {
+    if (timestamp == null) return 'Unknown';
+    if (timestamp is Timestamp) {
+      return '${timestamp.toDate().toLocal()}';
+    }
+    return timestamp.toString();
   }
 
   Widget _buildDetail(String label, String value) {

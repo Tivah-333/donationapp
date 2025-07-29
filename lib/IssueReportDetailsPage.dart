@@ -117,6 +117,44 @@ class _IssueReportDetailsPageState extends State<IssueReportDetailsPage> {
       });
     }
     await batch.commit();
+
+    // Send notification to the user who reported the problem
+    final userId = _problemData?['userId'];
+    final userType = _problemData?['userType'];
+    final userEmail = _problemData?['userEmail'];
+
+    if (userId != null && userType != null) {
+      try {
+        if (userType == 'donor') {
+          await FirebaseFirestore.instance.collection('donor_notifications').add({
+            'donorId': userId,
+            'type': 'problem_response',
+            'title': 'Issue Report Response',
+            'message': 'You have received a response to your issue report: $response',
+            'timestamp': timestamp,
+            'read': false,
+            'adminResponse': response,
+            'originalIssue': _problemData?['message'] ?? 'No message provided',
+            'issueType': 'problem_report',
+          });
+        } else if (userType == 'organization') {
+          await FirebaseFirestore.instance.collection('organization_notifications').add({
+            'organizationId': userId,
+            'type': 'problem_response',
+            'title': 'Issue Report Response',
+            'message': 'You have received a response to your issue report: $response',
+            'timestamp': timestamp,
+            'read': false,
+            'adminResponse': response,
+            'originalIssue': _problemData?['message'] ?? 'No message provided',
+            'issueType': 'problem_report',
+          });
+        }
+        print('✅ Notification sent to $userType: $userEmail');
+      } catch (e) {
+        print('❌ Error sending notification to user: $e');
+      }
+    }
   }
 
   void _showError(String message) {
