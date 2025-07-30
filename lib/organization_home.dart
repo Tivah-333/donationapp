@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:geolocator/geolocator.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'services/fcm_service.dart';
+import 'widgets/profile_picture_widget.dart';
 
 class OrganizationHome extends StatefulWidget {
   const OrganizationHome({super.key});
@@ -10,43 +12,67 @@ class OrganizationHome extends StatefulWidget {
 }
 
 class _OrganizationHomeState extends State<OrganizationHome> {
-  String? location;
-
   @override
   void initState() {
     super.initState();
-    _getLocation();
+    _checkOrganizationStatus();
+    _initializeNotifications();
   }
 
-  Future<void> _getLocation() async {
-    try {
-      final permission = await Geolocator.requestPermission();
-      if (permission == LocationPermission.denied || permission == LocationPermission.deniedForever) {
-        setState(() {
-          location = 'Location permission denied';
-        });
-        return;
-      }
+  Future<void> _initializeNotifications() async {
+    // Subscribe to organization notifications
+    await FCMService.subscribeToTopics();
+  }
 
-      final position = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high);
-      setState(() {
-        location = '📍 ${position.latitude.toStringAsFixed(2)}, ${position.longitude.toStringAsFixed(2)}';
-      });
+  Future<void> _checkOrganizationStatus() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
+    try {
+      final userDoc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
+      if (!userDoc.exists) return;
+
+      final data = userDoc.data() as Map<String, dynamic>;
+      final status = data['status'] as String? ?? 'approved';
+
+      if (status == 'rejected') {
+        // Force logout and redirect to login
+        await FirebaseAuth.instance.signOut();
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Your organization has been rejected. You cannot access the app.'),
+              backgroundColor: Colors.red,
+              duration: Duration(seconds: 3),
+            ),
+          );
+          Navigator.pushNamedAndRemoveUntil(context, '/login', (route) => false);
+        }
+      } else if (status == 'pending') {
+        // Redirect to status screen
+        if (mounted) {
+          Navigator.pushReplacementNamed(context, '/orgStatus');
+        }
+      }
     } catch (e) {
-      setState(() {
-        location = 'Could not get location';
-      });
+      print('Error checking organization status: $e');
     }
   }
 
   Future<void> _logout(BuildContext context) async {
     try {
+      // Unsubscribe from notifications before logout
+      await FCMService.unsubscribeFromTopics();
       await FirebaseAuth.instance.signOut();
-      await FirebaseAuth.instance.authStateChanges().first;
+      if (context.mounted) {
+        Navigator.pushNamedAndRemoveUntil(context, '/login', (route) => false);
+      }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Logout failed: ${e.toString()}')),
-      );
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Logout failed: ${e.toString()}')),
+        );
+      }
     }
   }
 
@@ -55,12 +81,60 @@ class _OrganizationHomeState extends State<OrganizationHome> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Organization Dashboard'),
+        backgroundColor: Colors.deepPurple,
         actions: [
-          IconButton(
-            icon: const Icon(Icons.notifications),
-            tooltip: 'Notifications',
-            onPressed: () => Navigator.pushNamed(context, '/organization/notifications'),
+          StreamBuilder<QuerySnapshot>(
+            stream: FirebaseFirestore.instance
+                .collection('organization_notifications')
+                .where('organizationId', isEqualTo: FirebaseAuth.instance.currentUser?.uid)
+                .where('read', isEqualTo: false)
+                .snapshots(),
+            builder: (context, snapshot) {
+              int unreadCount = snapshot.hasData ? snapshot.data!.docs.length : 0;
+              return Stack(
+                children: [
+                  IconButton(
+                    icon: const Icon(Icons.notifications),
+                    tooltip: 'Notifications',
+                    onPressed: () => Navigator.pushNamed(context, '/organization/notifications'),
+                  ),
+                  if (unreadCount > 0)
+                    Positioned(
+                      right: 8,
+                      top: 8,
+                      child: Container(
+                        padding: const EdgeInsets.all(4),
+                        decoration: BoxDecoration(
+                          color: Colors.red,
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        constraints: const BoxConstraints(
+                          minWidth: 20,
+                          minHeight: 20,
+                        ),
+                        child: Text(
+                          unreadCount.toString(),
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                      ),
+                    ),
+                ],
+              );
+            },
           ),
+          const SizedBox(width: 8),
+          ProfilePictureWidget(
+            size: 32,
+            onTap: () {
+              Navigator.pushNamed(context, '/organization/settings');
+            },
+          ),
+          const SizedBox(width: 8),
           IconButton(
             icon: const Icon(Icons.logout),
             tooltip: 'Logout',
@@ -72,14 +146,8 @@ class _OrganizationHomeState extends State<OrganizationHome> {
         padding: const EdgeInsets.all(16.0),
         child: ListView(
           children: [
-            // Welcome and location
+            // Welcome message
             Text('👋 Welcome, Organization!', style: Theme.of(context).textTheme.headlineSmall),
-            const SizedBox(height: 4),
-            Text(
-              location ?? 'Detecting location...',
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: Colors.grey),
-            ),
-
             const SizedBox(height: 24),
 
             // Donation Statistics Button
@@ -87,10 +155,61 @@ class _OrganizationHomeState extends State<OrganizationHome> {
 
             const SizedBox(height: 16),
 
+            // My Donation Requests Button
+            _buildActionButton(context, Icons.list_alt, 'My Donation Requests', '/organization/donation-requests'),
+
+            const SizedBox(height: 16),
+
+            // Notifications Button with Badge
+            StreamBuilder<QuerySnapshot>(
+              stream: FirebaseFirestore.instance
+                  .collection('organization_notifications')
+                  .where('organizationId', isEqualTo: FirebaseAuth.instance.currentUser?.uid)
+                  .where('read', isEqualTo: false)
+                  .snapshots(),
+              builder: (context, snapshot) {
+                int unreadCount = snapshot.hasData ? snapshot.data!.docs.length : 0;
+                return Stack(
+                  children: [
+                    _buildActionButton(context, Icons.notifications, 'Notifications', '/organization/notifications'),
+                    if (unreadCount > 0)
+                      Positioned(
+                        right: 8,
+                        top: 8,
+                        child: Container(
+                          padding: const EdgeInsets.all(4),
+                          decoration: BoxDecoration(
+                            color: Colors.red,
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          constraints: const BoxConstraints(
+                            minWidth: 20,
+                            minHeight: 20,
+                          ),
+                          child: Text(
+                            unreadCount.toString(),
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 12,
+                              fontWeight: FontWeight.bold,
+                            ),
+                            textAlign: TextAlign.center,
+                          ),
+                        ),
+                      ),
+                  ],
+                );
+              },
+            ),
+
+            const SizedBox(height: 16),
+
             // Quick Actions
             _buildActionButton(context, Icons.add_circle, 'Create New Donation Request', '/createRequest'),
 
             _buildActionButton(context, Icons.settings, 'Settings', '/organization/settings'),
+
+            const SizedBox(height: 16),
 
             const SizedBox(height: 24),
             const Divider(),
@@ -103,6 +222,8 @@ class _OrganizationHomeState extends State<OrganizationHome> {
             _buildTextAction(Icons.support_agent, 'Contact Us for Support', () {
               Navigator.pushNamed(context, '/contactSupport');
             }),
+
+
           ],
         ),
       ),

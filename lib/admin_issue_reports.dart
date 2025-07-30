@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
+import 'services/notification_service.dart';
 
 class AdminIssueReportsPage extends StatefulWidget {
   const AdminIssueReportsPage({Key? key}) : super(key: key);
@@ -42,6 +43,8 @@ class _AdminIssueReportsPageState extends State<AdminIssueReportsPage>
     return Scaffold(
       appBar: AppBar(
         title: const Text('Issue Reports'),
+        backgroundColor: Colors.deepPurple,
+        foregroundColor: Colors.black, // Ensure text and icons are dark
         bottom: TabBar(
           controller: tabController,
           tabs: const [
@@ -106,7 +109,11 @@ class _AdminIssueReportsPageState extends State<AdminIssueReportsPage>
           .orderBy('timestamp', descending: true)
           .snapshots(),
       builder: (context, snapshot) {
-        if (snapshot.hasError) return Center(child: Text('Error: ${snapshot.error}'));
+        if (snapshot.hasError) {
+          return const Center(
+            child: Text('Failed to load issues. Please check your connection.'),
+          );
+        }
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());
         }
@@ -125,7 +132,9 @@ class _AdminIssueReportsPageState extends State<AdminIssueReportsPage>
           return true;
         }).toList();
 
-        if (allIssues.isEmpty) return const Center(child: Text('No issues found.'));
+        if (allIssues.isEmpty) {
+          return const Center(child: Text('No issues found.'));
+        }
 
         return ListView.builder(
           itemCount: allIssues.length,
@@ -184,12 +193,21 @@ class _AdminIssueReportsPageState extends State<AdminIssueReportsPage>
                   items: ['Pending', 'In Progress', 'Resolved']
                       .map((s) => DropdownMenuItem(value: s, child: Text(s)))
                       .toList(),
-                  onChanged: (value) {
+                  onChanged: (value) async {
                     if (value != null) {
-                      FirebaseFirestore.instance.collection('issues').doc(issueId).update({'status': value});
-                      setState(() {
-                        currentStatus = value;
-                      });
+                      try {
+                        await FirebaseFirestore.instance
+                            .collection('issues')
+                            .doc(issueId)
+                            .update({'status': value});
+                        setState(() {
+                          currentStatus = value;
+                        });
+                      } catch (e) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('Failed to update status. Please try again.')),
+                        );
+                      }
                     }
                   },
                 ),
@@ -199,9 +217,18 @@ class _AdminIssueReportsPageState extends State<AdminIssueReportsPage>
                     ElevatedButton.icon(
                       icon: Icon(isArchived ? Icons.unarchive : Icons.archive),
                       label: Text(isArchived ? 'Unarchive' : 'Archive'),
-                      onPressed: () {
-                        FirebaseFirestore.instance.collection('issues').doc(issueId).update({'archived': !isArchived});
-                        Navigator.pop(context);
+                      onPressed: () async {
+                        try {
+                          await FirebaseFirestore.instance
+                              .collection('issues')
+                              .doc(issueId)
+                              .update({'archived': !isArchived});
+                          Navigator.pop(context);
+                        } catch (e) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('Failed to update archive status. Please try again.')),
+                          );
+                        }
                       },
                     ),
                   ],
@@ -221,16 +248,51 @@ class _AdminIssueReportsPageState extends State<AdminIssueReportsPage>
                       onPressed: () async {
                         final text = commentController.text.trim();
                         if (text.isNotEmpty) {
-                          await FirebaseFirestore.instance.collection('issues').doc(issueId).update({
-                            'comments': FieldValue.arrayUnion([
-                              {
-                                'text': text,
-                                'timestamp': FieldValue.serverTimestamp(),
+                          try {
+                            // Update the issue with the comment
+                            await FirebaseFirestore.instance
+                                .collection('issues')
+                                .doc(issueId)
+                                .update({
+                              'comments': FieldValue.arrayUnion([
+                                {
+                                  'text': text,
+                                  'timestamp': FieldValue.serverTimestamp(),
+                                }
+                              ])
+                            });
+
+                            // Send notification to the user who reported the issue
+                            final userId = data['userId'] as String?;
+                            final userType = data['userType'] as String?;
+                            
+                            if (userId != null && userType != null) {
+                              if (userType == 'donor') {
+                                await NotificationService.sendProblemResponseNotification(
+                                  donorId: userId,
+                                  response: text,
+                                  adminName: 'Admin',
+                                  issueType: 'problem_report',
+                                );
+                              } else if (userType == 'organization') {
+                                await NotificationService.sendOrgProblemResponseNotification(
+                                  organizationId: userId,
+                                  response: text,
+                                  adminName: 'Admin',
+                                  issueType: 'problem_report',
+                                );
                               }
-                            ])
-                          });
-                          commentController.clear();
-                          setState(() {});
+                            }
+
+                            commentController.clear();
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(content: Text('Comment added and notification sent.')),
+                            );
+                          } catch (e) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(content: Text('Failed to add comment. Please try again.')),
+                            );
+                          }
                         }
                       },
                     ),

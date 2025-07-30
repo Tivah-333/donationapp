@@ -133,4 +133,54 @@ router.post('/:id/profile-picture', async (req, res) => {
   }
 });
 
+// ✅ POST /api/support/issues - Submit problem report with full and short message
+router.post('/issues', async (req, res) => {
+  try {
+    const { description, imageUrl, timestamp } = req.body;
+
+    if (!description) {
+      return res.status(400).json({ error: 'Description is required' });
+    }
+
+    const user = await db.collection('users').doc(req.user.uid).get();
+    const userData = user.data();
+
+    const issue = {
+      fullMessage: description,  // ✅ full message
+      shortMessage: `Problem reported by ${req.user.email}`,  // ✅ short summary
+      message: userData?.role === 'Donor'
+        ? `Donor ${req.user.email} has reported a problem: ${description}`
+        : `Organization ${req.user.email} has reported a problem: ${description}`,
+      imageUrl: imageUrl || null,
+      senderEmail: req.user.email,
+      senderId: req.user.uid,
+      senderRole: userData?.role?.toLowerCase() || 'unknown',
+      status: 'unresolved',
+      read: false,
+      showDetails: true,
+      timestamp: timestamp
+        ? admin.firestore.Timestamp.fromDate(new Date(timestamp))
+        : admin.firestore.Timestamp.now(),
+      type: 'issue_report',
+      title: userData?.role === 'Donor'
+        ? 'New Issue Report from Donor'
+        : 'New Issue Report from Organization',
+    };
+
+    const notificationRef = await db.collection('admin_notifications').add(issue);
+
+    await admin.messaging().send({
+      topic: 'admin_notifications',
+      notification: {
+        title: 'New Problem Report',
+        body: `Problem reported by ${req.user.email}: ${description.substring(0, 50)}...`,
+      },
+    });
+
+    res.json({ message: 'Problem reported successfully', id: notificationRef.id });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 module.exports = router;

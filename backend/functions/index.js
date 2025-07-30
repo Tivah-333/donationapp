@@ -24,5 +24,6 @@ app.use('/api/notifications', notificationRoutes);
 app.use('/api/reports', reportRoutes);
 app.use('/api/upload-image', imageRoutes);
 
-// Export the API as a Firebase Cloud Function
 exports.api = functions.https.onRequest(app);
+
+// Email functionality removed - using Firebase default only

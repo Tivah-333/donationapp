@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'widgets/password_change_dialog.dart';
 
 class AdminSettingsPage extends StatefulWidget {
   final bool isDarkMode;
@@ -16,7 +17,6 @@ class AdminSettingsPage extends StatefulWidget {
 
 class _AdminSettingsPageState extends State<AdminSettingsPage> {
   late bool _isDarkMode;
-  String selectedLanguage = 'English';
 
   @override
   void initState() {
@@ -27,8 +27,11 @@ class _AdminSettingsPageState extends State<AdminSettingsPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Settings')),
-
+      appBar: AppBar(
+        title: const Text('Settings'),
+        backgroundColor: Colors.deepPurple,
+        foregroundColor: Colors.black, // Dark text/icons on purple background
+      ),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
@@ -37,8 +40,11 @@ class _AdminSettingsPageState extends State<AdminSettingsPage> {
           ListTile(
             leading: const Icon(Icons.lock),
             title: const Text('Change Password'),
-            onTap: () {
-              // TODO: Navigate to change password screen
+            onTap: () async {
+              await showDialog(
+                context: context,
+                builder: (context) => const PasswordChangeDialog(),
+              );
             },
           ),
 
@@ -52,18 +58,12 @@ class _AdminSettingsPageState extends State<AdminSettingsPage> {
             onChanged: (value) {
               setState(() => _isDarkMode = value);
               widget.onDarkModeChanged(value); // Notify main.dart
-            },
-          ),
-
-          const Divider(),
-
-          // 🌍 Language Selection
-          ListTile(
-            leading: const Icon(Icons.language),
-            title: const Text('Language'),
-            subtitle: Text(selectedLanguage),
-            onTap: () {
-              _showLanguageDialog(context);
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text(value ? 'Dark mode enabled' : 'Dark mode disabled'),
+                  duration: const Duration(seconds: 1),
+                ),
+              );
             },
           ),
 
@@ -82,35 +82,5 @@ class _AdminSettingsPageState extends State<AdminSettingsPage> {
     );
   }
 
-  void _showLanguageDialog(BuildContext context) {
-    showDialog(
-      context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('Select Language'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            RadioListTile<String>(
-              value: 'English',
-              groupValue: selectedLanguage,
-              title: const Text('English'),
-              onChanged: (value) {
-                setState(() => selectedLanguage = value!);
-                Navigator.pop(context);
-              },
-            ),
-            RadioListTile<String>(
-              value: 'Swahili',
-              groupValue: selectedLanguage,
-              title: const Text('Swahili'),
-              onChanged: (value) {
-                setState(() => selectedLanguage = value!);
-                Navigator.pop(context);
-              },
-            ),
-          ],
-        ),
-      ),
-    );
-  }
+
 }

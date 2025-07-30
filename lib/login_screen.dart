@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:flutter/services.dart';
 import 'admin_home.dart';
 import 'donor_home.dart';
 import 'organization_home.dart';
@@ -20,11 +19,13 @@ class _LoginScreenState extends State<LoginScreen> {
   final _passwordController = TextEditingController();
   bool _isLoading = false;
   bool _obscurePassword = true;
+  bool _showForgotPassword = false; // Track if we should show forgot password
+  bool _showUsernameDialog = false; // Track if we should show username dialog
+
 
   Future<void> _login() async {
     if (!_formKey.currentState!.validate()) return;
 
-    // Final email validation check
     final email = _emailController.text.trim();
     if (!_isValidEmail(email)) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -49,7 +50,7 @@ class _LoginScreenState extends State<LoginScreen> {
       if (!mounted) return;
       if (!userDoc.exists) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('User document not found')),
+          const SnackBar(content: Text('User document not found. Please contact support.')),
         );
         return;
       }
@@ -59,17 +60,17 @@ class _LoginScreenState extends State<LoginScreen> {
       if (userRole == "Donor") {
         Navigator.pushReplacement(
           context,
-          MaterialPageRoute(builder: (context) => DonorHome()),
+          MaterialPageRoute(builder: (context) => const DonorHome()),
         );
       } else if (userRole == "Organization") {
         Navigator.pushReplacement(
           context,
-          MaterialPageRoute(builder: (context) => OrganizationHome()),
+          MaterialPageRoute(builder: (context) => const OrganizationHome()),
         );
       } else if (userRole == "Administrator") {
         Navigator.pushReplacement(
           context,
-          MaterialPageRoute(builder: (context) => AdminHome()),
+          MaterialPageRoute(builder: (context) => const AdminHome()),
         );
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -78,26 +79,30 @@ class _LoginScreenState extends State<LoginScreen> {
         await FirebaseAuth.instance.signOut();
       }
     } on FirebaseAuthException catch (e) {
-      String errorMessage;
-      switch (e.code) {
-        case 'user-not-found':
-          errorMessage = 'No account found with this email';
-          break;
-        case 'wrong-password':
-          errorMessage = 'Incorrect password';
-          break;
-        case 'invalid-email':
-          errorMessage = 'Invalid email format';
-          break;
-        default:
-          errorMessage = 'Login failed: ${e.message}';
+      String errorMessage = 'Wrong email or password'; // Default message
+      if (e.code == 'invalid-email') {
+        errorMessage = 'Invalid email format';
+      } else if (e.code == 'user-disabled') {
+        errorMessage = 'This user account has been disabled';
+      } else if (e.code == 'too-many-requests') {
+        errorMessage = 'Too many login attempts. Please try again later';
+      } else if (e.code == 'network-request-failed') {
+        errorMessage = 'No internet connection. Please check your network';
       }
+      
+      // Show forgot password option for wrong password errors
+      if (e.code == 'wrong-password' || e.code == 'user-not-found') {
+        setState(() {
+          _showForgotPassword = true;
+        });
+      }
+
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(errorMessage)),
       );
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error: ${e.toString()}')),
+        SnackBar(content: Text('Unexpected error: ${e.toString()}')),
       );
     } finally {
       if (mounted) setState(() => _isLoading = false);
@@ -110,10 +115,120 @@ class _LoginScreenState extends State<LoginScreen> {
     ).hasMatch(email);
   }
 
+  void _showUsernameVerificationDialog() {
+    final usernameController = TextEditingController();
+    
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: const Text('Verify Your Identity'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text(
+                'Please enter the username you set when you first created your account:',
+                style: TextStyle(fontSize: 14),
+              ),
+              const SizedBox(height: 16),
+              TextField(
+                controller: usernameController,
+                decoration: const InputDecoration(
+                  labelText: 'Username',
+                  border: OutlineInputBorder(),
+                  hintText: 'Enter your username',
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                final username = usernameController.text.trim();
+                if (username.isEmpty) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Please enter your username')),
+                  );
+                  return;
+                }
+                
+                Navigator.of(context).pop();
+                await _verifyUsername(username);
+              },
+              child: const Text('Verify'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Future<void> _verifyUsername(String username) async {
+    setState(() => _isLoading = true);
+    
+    try {
+      // Search for user by username in Firestore
+      final querySnapshot = await FirebaseFirestore.instance
+          .collection('users')
+          .where('username', isEqualTo: username)
+          .limit(1)
+          .get();
+
+      if (querySnapshot.docs.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('No account found with this username. Please try again.'),
+            backgroundColor: Colors.red,
+          ),
+        );
+        return;
+      }
+
+      final userData = querySnapshot.docs.first.data();
+      final email = userData['email'] as String?;
+
+      if (email != null) {
+        // Send password reset email
+        await FirebaseAuth.instance.sendPasswordResetEmail(email: email);
+        
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Password reset email sent to $email. Please check your email.'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Account found but no email associated. Please contact support.'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error: ${e.toString()}'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    } finally {
+      setState(() => _isLoading = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Login')),
+      appBar: AppBar(
+        title: const Text('Login'),
+        backgroundColor: Colors.deepPurple,
+      ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
         child: Form(
@@ -130,7 +245,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 keyboardType: TextInputType.emailAddress,
                 textInputAction: TextInputAction.next,
                 inputFormatters: [
-                  FilteringTextInputFormatter.deny(RegExp(r'\s')), // No spaces
+                  FilteringTextInputFormatter.deny(RegExp(r'\s')),
                 ],
                 validator: (value) {
                   if (value == null || value.isEmpty) {
@@ -142,7 +257,6 @@ class _LoginScreenState extends State<LoginScreen> {
                   return null;
                 },
                 onChanged: (value) {
-                  // Auto-trim whitespace
                   _emailController.value = _emailController.value.copyWith(
                     text: value.trim(),
                     selection: TextSelection.collapsed(offset: value.trim().length),
@@ -194,10 +308,12 @@ class _LoginScreenState extends State<LoginScreen> {
                 onPressed: () => Navigator.pushNamed(context, '/signup'),
                 child: const Text("Don't have an account? Sign Up"),
               ),
-              TextButton(
-                onPressed: () => Navigator.pushNamed(context, '/forgot-password'),
-                child: const Text('Forgot Password?'),
-              ),
+              // Only show forgot password after failed login attempt
+              if (_showForgotPassword)
+                TextButton(
+                  onPressed: () => _showUsernameVerificationDialog(),
+                  child: const Text('Forgot Password?'),
+                ),
             ],
           ),
         ),

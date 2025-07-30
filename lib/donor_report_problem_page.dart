@@ -1,6 +1,7 @@
-import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:image_picker/image_picker.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'services/notification_service.dart';
 
 class DonorReportProblemPage extends StatefulWidget {
   const DonorReportProblemPage({super.key});
@@ -12,7 +13,7 @@ class DonorReportProblemPage extends StatefulWidget {
 class _DonorReportProblemPageState extends State<DonorReportProblemPage> {
   final _formKey = GlobalKey<FormState>();
   final TextEditingController _problemController = TextEditingController();
-  File? _imageFile;
+  bool _isSubmitting = false;
 
   @override
   void dispose() {
@@ -20,36 +21,65 @@ class _DonorReportProblemPageState extends State<DonorReportProblemPage> {
     super.dispose();
   }
 
-  Future<void> _pickImage() async {
-    final picker = ImagePicker();
-    final pickedFile = await picker.pickImage(
-      source: ImageSource.gallery,
-      maxWidth: 600,
-    );
-
-    if (pickedFile != null) {
-      setState(() {
-        _imageFile = File(pickedFile.path);
-      });
-    }
-  }
-
-  void _submitProblem() {
+  Future<void> _submitProblem() async {
     if (_formKey.currentState!.validate()) {
-      // TODO: Save to Firestore or backend
+      try {
+        setState(() {
+          _isSubmitting = true;
+        });
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Thank you. We received your message and will get back to you shortly!',
+        final user = FirebaseAuth.instance.currentUser;
+        if (user == null) throw Exception('User not logged in');
+
+        // Create the problem document
+        final problemDoc = await FirebaseFirestore.instance.collection('problems').add({
+          'userId': user.uid,
+          'userEmail': user.email ?? 'Unknown',
+          'userType': 'donor',
+          'message': _problemController.text.trim(),
+          'imageUrl': null, // No image upload
+          'response': null,
+          'isResponded': false,
+          'read': false,
+          'timestamp': Timestamp.now(),
+          'status': 'pending',
+        });
+
+        // Send notification to admin using NotificationService
+        await NotificationService.sendDonorIssueReportNotification(
+          donorId: user.uid,
+          donorEmail: user.email ?? 'Unknown',
+          issue: 'Problem Report',
+          description: _problemController.text.trim(),
+          problemId: problemDoc.id,
+        );
+
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Problem reported successfully! Admin notified.'),
+            backgroundColor: Colors.green,
           ),
-        ),
-      );
+        );
 
-      _problemController.clear();
-      setState(() {
-        _imageFile = null;
-      });
+        // Clear form and pop
+        _problemController.clear();
+        Navigator.of(context).pop();
+      } catch (e) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error: ${e.toString()}'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      } finally {
+        if (mounted) {
+          setState(() {
+            _isSubmitting = false;
+          });
+        }
+      }
     }
   }
 
@@ -58,6 +88,7 @@ class _DonorReportProblemPageState extends State<DonorReportProblemPage> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Report a Problem'),
+        backgroundColor: Colors.deepPurple,
       ),
       body: Padding(
         padding: const EdgeInsets.all(16),
@@ -70,7 +101,6 @@ class _DonorReportProblemPageState extends State<DonorReportProblemPage> {
                 style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
               ),
               const SizedBox(height: 12),
-
               TextFormField(
                 controller: _problemController,
                 maxLines: 5,
@@ -85,38 +115,12 @@ class _DonorReportProblemPageState extends State<DonorReportProblemPage> {
                   return null;
                 },
               ),
-              const SizedBox(height: 20),
-
-              if (_imageFile != null)
-                Column(
-                  children: [
-                    Image.file(_imageFile!),
-                    TextButton.icon(
-                      onPressed: () {
-                        setState(() {
-                          _imageFile = null;
-                        });
-                      },
-                      icon: const Icon(Icons.delete),
-                      label: const Text('Remove Image'),
-                    ),
-                  ],
-                ),
-
-              ElevatedButton.icon(
-                onPressed: _pickImage,
-                icon: const Icon(Icons.photo_library),
-                label: const Text('Attach an Optional Photo'),
-                style: ElevatedButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(vertical: 14),
-                ),
-              ),
-
               const SizedBox(height: 24),
-
               ElevatedButton(
-                onPressed: _submitProblem,
-                child: const Text('Submit'),
+                onPressed: _isSubmitting ? null : _submitProblem,
+                child: _isSubmitting
+                    ? const CircularProgressIndicator()
+                    : const Text('Submit'),
                 style: ElevatedButton.styleFrom(
                   padding: const EdgeInsets.symmetric(vertical: 14),
                 ),
