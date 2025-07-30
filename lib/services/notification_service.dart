@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
+import 'fcm_service.dart';
 
 class NotificationService {
   static final FirebaseFirestore _firestore = FirebaseFirestore.instance;
@@ -15,6 +16,7 @@ class NotificationService {
     Map<String, dynamic>? additionalData,
   }) async {
     try {
+      // Store in Firestore
       await _firestore.collection('admin_notifications').add({
         'type': type,
         'title': title,
@@ -24,6 +26,17 @@ class NotificationService {
         'starred': false,
         ...?additionalData,
       });
+
+      // Send push notification to all admins
+      await _sendPushNotificationToTopic(
+        topic: 'admins',
+        title: title,
+        message: message,
+        data: {
+          'type': type,
+          ...?additionalData,
+        },
+      );
     } catch (e) {
       print('Error sending admin notification: $e');
     }
@@ -38,6 +51,7 @@ class NotificationService {
     Map<String, dynamic>? additionalData,
   }) async {
     try {
+      // Store in Firestore
       await _firestore.collection('organization_notifications').add({
         'organizationId': organizationId,
         'type': type,
@@ -47,6 +61,17 @@ class NotificationService {
         'read': false,
         ...?additionalData,
       });
+
+      // Send push notification
+      await _sendPushNotification(
+        userId: organizationId,
+        title: title,
+        message: message,
+        data: {
+          'type': type,
+          ...?additionalData,
+        },
+      );
     } catch (e) {
       print('Error sending organization notification: $e');
     }
@@ -61,6 +86,7 @@ class NotificationService {
     Map<String, dynamic>? additionalData,
   }) async {
     try {
+      // Store in Firestore
       await _firestore.collection('donor_notifications').add({
         'donorId': donorId,
         'type': type,
@@ -70,6 +96,17 @@ class NotificationService {
         'read': false,
         ...?additionalData,
       });
+
+      // Send push notification
+      await _sendPushNotification(
+        userId: donorId,
+        title: title,
+        message: message,
+        data: {
+          'type': type,
+          ...?additionalData,
+        },
+      );
     } catch (e) {
       print('Error sending donor notification: $e');
     }
@@ -648,27 +685,65 @@ class NotificationService {
     required String issueType,
   }) async {
     try {
-      final responseResult = await http.post(
-        Uri.parse('https://your-firebase-function-url/api/notifications/problem-response'),
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer ${await _getAuthToken()}',
-        },
-        body: jsonEncode({
-          'donorId': donorId,
+      await sendDonorNotification(
+        donorId: donorId,
+        type: 'problem_response',
+        title: 'Response to Your Problem Report',
+        message: 'Admin $adminName has responded to your problem report: $response',
+        additionalData: {
           'response': response,
           'adminName': adminName,
           'issueType': issueType,
-        }),
+        },
       );
-      
-      if (responseResult.statusCode == 200) {
-        print('Problem response notification sent successfully');
-      } else {
-        print('Failed to send problem response notification: ${responseResult.statusCode}');
-      }
     } catch (e) {
       print('Error sending problem response notification: $e');
+    }
+  }
+
+  /// Send problem report response notification to organization
+  static Future<void> sendOrgProblemResponseNotification({
+    required String organizationId,
+    required String response,
+    required String adminName,
+    required String issueType,
+  }) async {
+    try {
+      await sendOrganizationNotification(
+        organizationId: organizationId,
+        type: 'problem_response',
+        title: 'Response to Your Problem Report',
+        message: 'Admin $adminName has responded to your problem report: $response',
+        additionalData: {
+          'response': response,
+          'adminName': adminName,
+          'issueType': issueType,
+        },
+      );
+    } catch (e) {
+      print('Error sending organization problem response notification: $e');
+    }
+  }
+
+  /// Send support response notification to organization
+  static Future<void> sendOrgSupportResponseNotification({
+    required String organizationId,
+    required String response,
+    required String adminName,
+  }) async {
+    try {
+      await sendOrganizationNotification(
+        organizationId: organizationId,
+        type: 'support_response',
+        title: 'Response to Your Support Request',
+        message: 'Admin $adminName has responded to your support request: $response',
+        additionalData: {
+          'response': response,
+          'adminName': adminName,
+        },
+      );
+    } catch (e) {
+      print('Error sending organization support response notification: $e');
     }
   }
 
@@ -699,6 +774,97 @@ class NotificationService {
       }
     } catch (e) {
       print('Error updating FCM token: $e');
+    }
+  }
+
+  /// Send push notification to specific user
+  static Future<void> _sendPushNotification({
+    required String userId,
+    required String title,
+    required String message,
+    required Map<String, dynamic> data,
+  }) async {
+    try {
+      // Get user's FCM token
+      final userDoc = await _firestore.collection('users').doc(userId).get();
+      if (!userDoc.exists) {
+        print('User not found for push notification: $userId');
+        return;
+      }
+
+      final userData = userDoc.data()!;
+      final fcmToken = userData['fcmToken'] as String?;
+
+      if (fcmToken == null) {
+        print('No FCM token found for user: $userId');
+        return;
+      }
+
+      // Send via Firebase Cloud Messaging
+      final response = await http.post(
+        Uri.parse('https://fcm.googleapis.com/fcm/send'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'key=YOUR_SERVER_KEY', // You'll need to add your FCM server key
+        },
+        body: jsonEncode({
+          'to': fcmToken,
+          'notification': {
+            'title': title,
+            'body': message,
+            'sound': 'default',
+            'badge': '1',
+          },
+          'data': data,
+          'priority': 'high',
+        }),
+      );
+
+      if (response.statusCode == 200) {
+        print('Push notification sent successfully to user: $userId');
+      } else {
+        print('Failed to send push notification: ${response.statusCode}');
+      }
+    } catch (e) {
+      print('Error sending push notification: $e');
+    }
+  }
+
+  /// Send push notification to topic
+  static Future<void> _sendPushNotificationToTopic({
+    required String topic,
+    required String title,
+    required String message,
+    required Map<String, dynamic> data,
+  }) async {
+    try {
+      // Send via Firebase Cloud Messaging
+      final response = await http.post(
+        Uri.parse('https://fcm.googleapis.com/fcm/send'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'key=YOUR_SERVER_KEY', // You'll need to add your FCM server key
+        },
+        body: jsonEncode({
+          'to': '/topics/$topic',
+          'notification': {
+            'title': title,
+            'body': message,
+            'sound': 'default',
+            'badge': '1',
+          },
+          'data': data,
+          'priority': 'high',
+        }),
+      );
+
+      if (response.statusCode == 200) {
+        print('Push notification sent successfully to topic: $topic');
+      } else {
+        print('Failed to send push notification to topic: ${response.statusCode}');
+      }
+    } catch (e) {
+      print('Error sending push notification to topic: $e');
     }
   }
 

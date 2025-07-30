@@ -23,7 +23,10 @@ class _DonorReportProblemPageState extends State<DonorReportProblemPage> {
 
   Future<void> _submitProblem() async {
     if (_formKey.currentState!.validate()) {
-      // TODO: Save to Firestore or backend
+      try {
+        setState(() {
+          _isSubmitting = true;
+        });
 
         final user = FirebaseAuth.instance.currentUser;
         if (user == null) throw Exception('User not logged in');
@@ -57,8 +60,7 @@ class _DonorReportProblemPageState extends State<DonorReportProblemPage> {
             content: Text('Problem reported successfully! Admin notified.'),
             backgroundColor: Colors.green,
           ),
-        ),
-      );
+        );
 
         // Clear form and pop
         _problemController.clear();
@@ -86,6 +88,7 @@ class _DonorReportProblemPageState extends State<DonorReportProblemPage> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Report a Problem'),
+        backgroundColor: Colors.deepPurple,
       ),
       body: Padding(
         padding: const EdgeInsets.all(16),
@@ -98,7 +101,6 @@ class _DonorReportProblemPageState extends State<DonorReportProblemPage> {
                 style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
               ),
               const SizedBox(height: 12),
-
               TextFormField(
                 controller: _problemController,
                 maxLines: 5,
@@ -114,10 +116,11 @@ class _DonorReportProblemPageState extends State<DonorReportProblemPage> {
                 },
               ),
               const SizedBox(height: 24),
-
               ElevatedButton(
-                onPressed: _submitProblem,
-                child: const Text('Submit'),
+                onPressed: _isSubmitting ? null : _submitProblem,
+                child: _isSubmitting
+                    ? const CircularProgressIndicator()
+                    : const Text('Submit'),
                 style: ElevatedButton.styleFrom(
                   padding: const EdgeInsets.symmetric(vertical: 14),
                 ),

@@ -5,6 +5,8 @@ import 'package:flutter/foundation.dart' show kIsWeb; // Added for platform chec
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:location/location.dart' as loc;
+import 'package:geocoding/geocoding.dart';
 
 class CreateDonationRequestPage extends StatefulWidget {
   const CreateDonationRequestPage({super.key});
@@ -19,17 +21,20 @@ class _CreateDonationRequestPageState extends State<CreateDonationRequestPage> {
   final TextEditingController _titleController = TextEditingController();
   final TextEditingController _quantityController = TextEditingController();
 
-  String _selectedCategory = 'Clothes';
+  String? _selectedCategory = 'Clothes';
+  String? _detectedLocation;
   bool _isSubmitting = false;
   bool _isDetectingLocation = true;
 
   final List<String> _categories = [
     'Clothes',
-    'Food',
+    'Food Supplies',
     'Medical Supplies',
     'School Supplies',
     'Hygiene Products',
-    'Other'
+    'Electronics',
+    'Furniture',
+    'Others'
   ];
 
   final Map<String, Map<String, String>> _categoryHints = {
@@ -296,43 +301,12 @@ class _CreateDonationRequestPageState extends State<CreateDonationRequestPage> {
     super.dispose();
   }
 
-  Future<void> _submitRequest() async {
-    if (!_formKey.currentState!.validate()) return;
-
-    setState(() => _isSubmitting = true);
-
-    try {
-      final user = FirebaseAuth.instance.currentUser;
-
-      await FirebaseFirestore.instance.collection('donation_requests').add({
-        'title': _titleController.text.trim(),
-        'description': _descriptionController.text.trim(),
-        'quantity': int.parse(_quantityController.text),
-        'category': _selectedCategory,
-        'organizationId': user?.uid,
-        'status': 'pending',
-        'timestamp': Timestamp.now(),
-      });
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Donation request submitted successfully')),
-        );
-        Navigator.pop(context);
-      }
-    } catch (e) {
-      setState(() => _isSubmitting = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error: ${e.toString()}')),
-      );
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Create Donation Request'),
+        backgroundColor: Colors.deepPurple,
       ),
       body: Padding(
         padding: const EdgeInsets.all(16),

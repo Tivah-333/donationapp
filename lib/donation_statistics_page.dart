@@ -29,6 +29,30 @@ class _DonationStatisticsPageState extends State<DonationStatisticsPage> {
   void initState() {
     super.initState();
     _loadOrganizationStatistics();
+    // Add real-time listener for statistics updates
+    _setupRealTimeListener();
+  }
+
+  void _setupRealTimeListener() {
+    if (user == null) return;
+    
+    // Listen to donations assigned to this organization
+    FirebaseFirestore.instance
+        .collection('donations')
+        .where('assignedTo', isEqualTo: user!.uid)
+        .snapshots()
+        .listen((snapshot) {
+      _loadOrganizationStatistics();
+    });
+    
+    // Listen to donation requests for this organization
+    FirebaseFirestore.instance
+        .collection('donation_requests')
+        .where('organizationId', isEqualTo: user!.uid)
+        .snapshots()
+        .listen((snapshot) {
+      _loadOrganizationStatistics();
+    });
   }
 
   Future<void> _loadOrganizationStatistics() async {

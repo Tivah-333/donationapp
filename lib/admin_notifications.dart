@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:intl/intl.dart';
+import 'IssueReportDetailsPage.dart';
 
 class AdminNotificationsPage extends StatefulWidget {
   final int initialTab;
@@ -10,9 +12,10 @@ class AdminNotificationsPage extends StatefulWidget {
   State<AdminNotificationsPage> createState() => _AdminNotificationsPageState();
 }
 
-class _AdminNotificationsPageState extends State<AdminNotificationsPage> {
+class _AdminNotificationsPageState extends State<AdminNotificationsPage>
+    with SingleTickerProviderStateMixin {
   final CollectionReference notificationsRef =
-  FirebaseFirestore.instance.collection('notifications');
+  FirebaseFirestore.instance.collection('admin_notifications');
 
   late TabController _tabController;
 
@@ -86,14 +89,19 @@ class _AdminNotificationsPageState extends State<AdminNotificationsPage> {
               Container(
                 margin: const EdgeInsets.only(left: 6),
                 padding:
-                const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                 decoration: BoxDecoration(
                   color: Colors.red,
-                  borderRadius: BorderRadius.circular(10),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                constraints: const BoxConstraints(
+                  minWidth: 20,
+                  minHeight: 20,
                 ),
                 child: Text(
                   count.toString(),
-                  style: const TextStyle(color: Colors.white, fontSize: 12),
+                  style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold),
+                  textAlign: TextAlign.center,
                 ),
               ),
           ],
@@ -411,9 +419,10 @@ class _AdminNotificationsPageState extends State<AdminNotificationsPage> {
                   ),
                   SizedBox(height: 8),
                   Text('Donor: ${data['donorEmail'] ?? 'Unknown'}'),
-                  Text('Category: ${data['donationCategory'] ?? 'Unknown'}'),
-                  Text('Title: ${data['donationTitle'] ?? 'Unknown'}'),
-                  Text('Status: ${data['donationStatus'] ?? 'Unknown'}'),
+                  Text('Category: ${data['categories']?.first ?? 'Unknown'}'),
+                  Text('Title: ${_extractDonationTitle(data['message'] ?? '')}'),
+                  Text('Quantity: ${_extractDonationQuantity(data['message'] ?? '')}'),
+                  Text('Delivery: ${data['deliveryOption'] ?? 'Unknown'}'),
                 ] else ...[
                   Text(
                     'Details:',
@@ -426,108 +435,6 @@ class _AdminNotificationsPageState extends State<AdminNotificationsPage> {
             ),
           ),
         ],
-      ),
-      body: showNotifications
-          ? StreamBuilder<QuerySnapshot>(
-        stream: notificationsRef
-            .orderBy('timestamp', descending: true)
-            .snapshots(),
-        builder: (context, snapshot) {
-          if (snapshot.hasError) {
-            return Center(child: Text('Error: ${snapshot.error}'));
-          }
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator());
-          }
-
-          final docs = snapshot.data!.docs.where((doc) {
-            final message =
-                (doc['message'] as String?)?.toLowerCase() ?? '';
-            return message.contains(searchQuery.toLowerCase());
-          }).toList();
-
-          if (docs.isEmpty) {
-            return const Center(child: Text('No notifications found.'));
-          }
-
-          return ListView.builder(
-            itemCount: docs.length,
-            itemBuilder: (context, index) {
-              final doc = docs[index];
-              final data = doc.data()! as Map<String, dynamic>;
-              final id = doc.id;
-              final type = data['type'] ?? 'unknown';
-              final message = data['message'] ?? 'No message';
-              final timestamp = data['timestamp'] as Timestamp?;
-              final read = data['read'] ?? false;
-              final starred = data['starred'] ?? false;
-
-              return GestureDetector(
-                onLongPress: () {
-                  showModalBottomSheet(
-                    context: context,
-                    builder: (ctx) => Wrap(
-                      children: [
-                        ListTile(
-                          leading: Icon(
-                            starred
-                                ? Icons.star_outline
-                                : Icons.star,
-                          ),
-                          title: Text(
-                            starred ? 'Unstar' : 'Star Notification',
-                          ),
-                          onTap: () {
-                            Navigator.pop(context);
-                            _toggleStar(id, starred);
-                          },
-                        ),
-                        ListTile(
-                          leading: const Icon(Icons.delete),
-                          title: const Text('Delete'),
-                          onTap: () {
-                            Navigator.pop(context);
-                            _deleteNotification(id);
-                          },
-                        ),
-                      ],
-                    ),
-                  );
-                },
-                child: ListTile(
-                  leading: _iconForType(type, read),
-                  title: Text(message),
-                  subtitle: Text(
-                    timestamp != null
-                        ? _formatTimestamp(timestamp)
-                        : 'Unknown time',
-                    style: const TextStyle(fontSize: 12),
-                  ),
-                  trailing: starred
-                      ? const Icon(Icons.star, color: Colors.amber)
-                      : null,
-                  tileColor:
-                  read ? Colors.white : Colors.blue.shade50,
-                  onTap: () {
-                    _markAsRead(id, read);
-                    setState(() {
-                      if (selectedIds.contains(id)) {
-                        selectedIds.remove(id);
-                      } else {
-                        selectedIds.add(id);
-                      }
-                    });
-                  },
-                  selected: selectedIds.contains(id),
-                  selectedTileColor: Colors.grey[200],
-                ),
-              );
-            },
-          );
-        },
-      )
-          : const Center(
-        child: Text('Notifications are hidden'),
       ),
     );
   }
@@ -666,6 +573,35 @@ class _AdminNotificationsPageState extends State<AdminNotificationsPage> {
   Future<void> _sendRejectionEmail(String email, String orgName) async {
     // Email functionality removed
     print('Organization rejection notification would be sent to: $email');
+  }
+
+  String _extractDonationTitle(String message) {
+    try {
+      // Message format: "email donated title - Category: category - delivery"
+      final parts = message.split(' donated ');
+      if (parts.length > 1) {
+        final titlePart = parts[1].split(' - Category:')[0];
+        return titlePart.trim();
+      }
+      return 'Unknown';
+    } catch (e) {
+      return 'Unknown';
+    }
+  }
+
+  String _extractDonationQuantity(String message) {
+    try {
+      // Extract quantity from the title part
+      final title = _extractDonationTitle(message);
+      // Look for quantity in the title (e.g., "5 books", "3 clothes")
+      final quantityMatch = RegExp(r'(\d+)\s+').firstMatch(title);
+      if (quantityMatch != null) {
+        return quantityMatch.group(1) ?? '1';
+      }
+      return '1';
+    } catch (e) {
+      return '1';
+    }
   }
 
   Future<void> _respondToSupportRequest(BuildContext context, Map<String, dynamic> data) async {
@@ -890,101 +826,7 @@ class _AdminNotificationsPageState extends State<AdminNotificationsPage> {
 
   String _formatTimestamp(Timestamp timestamp) {
     final date = timestamp.toDate();
-    return '${date.day}/${date.month}/${date.year} ${date.hour}:${date.minute.toString().padLeft(2, '0')}';
-  }
-
-  Future<void> _markAsRead(String docId, bool alreadyRead) async {
-    if (!alreadyRead) {
-      await notificationsRef.doc(docId).update({'read': true});
-    }
-  }
-
-  Future<void> _toggleStar(String docId, bool currentStar) async {
-    await notificationsRef.doc(docId).update({'starred': !currentStar});
-  }
-
-  Future<void> _deleteNotification(String docId) async {
-    await notificationsRef.doc(docId).delete();
+    return DateFormat('MMM d, y • h:mm a').format(date);
   }
 }
 
-// 🔍 Search
-class _NotificationSearchDelegate extends SearchDelegate<String> {
-  @override
-  List<Widget>? buildActions(BuildContext context) {
-    return [
-      IconButton(
-        icon: const Icon(Icons.clear),
-        onPressed: () => query = '',
-      )
-    ];
-  }
-
-  @override
-  Widget? buildLeading(BuildContext context) {
-    return IconButton(
-      icon: const Icon(Icons.arrow_back),
-      onPressed: () => close(context, ''),
-    );
-  }
-
-  @override
-  Widget buildResults(BuildContext context) => const SizedBox();
-
-  @override
-  Widget buildSuggestions(BuildContext context) => const SizedBox();
-}
-
-// ⭐ Starred Notifications Page
-class StarredNotificationsPage extends StatelessWidget {
-  const StarredNotificationsPage({Key? key}) : super(key: key);
-
-  @override
-  Widget build(BuildContext context) {
-    final notificationsRef =
-    FirebaseFirestore.instance.collection('notifications');
-
-    return Scaffold(
-      appBar: AppBar(title: const Text('Starred Notifications')),
-      body: StreamBuilder<QuerySnapshot>(
-        stream: notificationsRef
-            .where('starred', isEqualTo: true)
-            .orderBy('timestamp', descending: true)
-            .snapshots(),
-        builder: (context, snapshot) {
-          if (snapshot.hasError) {
-            return Center(child: Text('Error: ${snapshot.error}'));
-          }
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator());
-          }
-
-          final docs = snapshot.data!.docs;
-
-          if (docs.isEmpty) {
-            return const Center(child: Text('No starred notifications.'));
-          }
-
-          return ListView.builder(
-            itemCount: docs.length,
-            itemBuilder: (context, index) {
-              final data = docs[index].data()! as Map<String, dynamic>;
-              final message = data['message'] ?? 'No message';
-              final timestamp = data['timestamp'] as Timestamp?;
-
-              return ListTile(
-                leading: const Icon(Icons.star, color: Colors.amber),
-                title: Text(message),
-                subtitle: Text(
-                  timestamp != null
-                      ? '${timestamp.toDate()}'
-                      : 'Unknown time',
-                ),
-              );
-            },
-          );
-        },
-      ),
-    );
-  }
-}

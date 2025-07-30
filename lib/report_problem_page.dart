@@ -24,11 +24,13 @@ class _ReportProblemPageState extends State<ReportProblemPage> {
 
   Future<void> _submitProblem() async {
     if (_formKey.currentState!.validate()) {
-      // TODO: Implement submission logic (e.g., save problem description and optionally the image to Firestore/storage)
+      try {
+        setState(() {
+          _isSubmitting = true;
+        });
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Problem reported successfully!')),
-      );
+        final user = FirebaseAuth.instance.currentUser;
+        if (user == null) throw Exception('User not logged in');
 
         // Get user type from Firestore
         final userDoc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
@@ -96,6 +98,7 @@ class _ReportProblemPageState extends State<ReportProblemPage> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Report a Problem'),
+        backgroundColor: Colors.deepPurple,
       ),
       body: Padding(
         padding: const EdgeInsets.all(16),
@@ -125,8 +128,10 @@ class _ReportProblemPageState extends State<ReportProblemPage> {
               const SizedBox(height: 24),
 
               ElevatedButton(
-                onPressed: _submitProblem,
-                child: const Text('Submit'),
+                onPressed: _isSubmitting ? null : _submitProblem,
+                child: _isSubmitting
+                    ? const CircularProgressIndicator()
+                    : const Text('Submit'),
                 style: ElevatedButton.styleFrom(
                   padding: const EdgeInsets.symmetric(vertical: 14),
                 ),

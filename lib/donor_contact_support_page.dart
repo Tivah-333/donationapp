@@ -21,7 +21,7 @@ class _DonorContactSupportPageState extends State<DonorContactSupportPage> {
     super.dispose();
   }
 
-  void _submitSupportRequest() {
+  Future<void> _submitSupportRequest() async {
     if (_formKey.currentState!.validate()) {
       try {
         setState(() => _isSubmitting = true);

@@ -25,14 +25,17 @@ class _MakeDonationPageState extends State<MakeDonationPage> {
   bool _isSubmitting = false;
   bool _isDetectingLocation = true;
 
-  String? detectedLocationName;
-  Position? detectedPosition;
+  final TextEditingController _pickupStationController = TextEditingController();
 
-  final List<String> categories = [
+  final List<String> _categories = [
     'Clothes',
-    'Studying Materials',
     'Food Supplies',
-    'Other',
+    'Medical Supplies',
+    'School Supplies',
+    'Hygiene Products',
+    'Electronics',
+    'Furniture',
+    'Others',
   ];
 
   final List<String> _deliveryOptions = ['Pickup', 'Drop-off'];
@@ -234,24 +237,11 @@ class _MakeDonationPageState extends State<MakeDonationPage> {
     }
   }
 
-  Future<String?> _uploadImage(File image) async {
-    final userId = FirebaseAuth.instance.currentUser?.uid ?? 'unknown';
-    final ref = FirebaseStorage.instance
-        .ref()
-        .child('donation_images')
-        .child('$userId-${DateTime.now().millisecondsSinceEpoch}.jpg');
-
-    await ref.putFile(image);
-    return await ref.getDownloadURL();
-  }
-
   Future<void> _submitDonation() async {
     if (!_formKey.currentState!.validate()) return;
 
-    if (detectedPosition == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Location not detected. Cannot submit donation.')),
-      );
+    if (_selectedDeliveryOption == null || _selectedDeliveryOption!.isEmpty) {
+      _showError('Please select a delivery option.');
       return;
     }
 
@@ -319,7 +309,7 @@ class _MakeDonationPageState extends State<MakeDonationPage> {
     } catch (e) {
       _showError('Failed to submit donation: $e');
     } finally {
-      setState(() => isLoading = false);
+      if (mounted) setState(() => _isSubmitting = false);
     }
   }
 

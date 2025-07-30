@@ -10,20 +10,24 @@ import 'help_faq_page.dart';
 import 'widgets/password_change_dialog.dart';
 
 class OrganizationSettingsPage extends StatefulWidget {
-  const OrganizationSettingsPage({super.key});
+  final bool isDarkMode;
+  final ValueChanged<bool> onDarkModeChanged;
+
+  const OrganizationSettingsPage({
+    super.key,
+    required this.isDarkMode,
+    required this.onDarkModeChanged,
+  });
 
   @override
   State<OrganizationSettingsPage> createState() => _OrganizationSettingsPageState();
 }
 
 class _OrganizationSettingsPageState extends State<OrganizationSettingsPage> {
-  bool emailNotifications = true;
-  String? location;
   final user = FirebaseAuth.instance.currentUser;
   final _formKey = GlobalKey<FormState>();
 
   final TextEditingController nameController = TextEditingController();
-  final TextEditingController contactController = TextEditingController();
 
 
 
@@ -33,12 +37,12 @@ class _OrganizationSettingsPageState extends State<OrganizationSettingsPage> {
   bool isDarkTheme = false;
 
   bool notificationsEnabled = true;
-  bool emailNotificationsEnabled = true;
   bool pushNotificationsEnabled = true;
 
   @override
   void initState() {
     super.initState();
+    isDarkTheme = widget.isDarkMode;
     _loadUserData();
     _getLocation();
   }
@@ -49,12 +53,9 @@ class _OrganizationSettingsPageState extends State<OrganizationSettingsPage> {
       final data = doc.data();
       if (data != null) {
         nameController.text = data['name'] ?? '';
-        contactController.text = data['contact'] ?? '';
-        emailNotifications = data['emailNotifications'] ?? true;
         profileImageUrl = data['profileImageUrl'];
         isDarkTheme = data['isDarkTheme'] ?? false;
         notificationsEnabled = data['notificationsEnabled'] ?? true;
-        emailNotificationsEnabled = data['emailNotificationsEnabled'] ?? true;
         pushNotificationsEnabled = data['pushNotificationsEnabled'] ?? true;
         setState(() {});
       }
@@ -66,10 +67,8 @@ class _OrganizationSettingsPageState extends State<OrganizationSettingsPage> {
 
     await FirebaseFirestore.instance.collection('users').doc(user!.uid).update({
       'name': nameController.text.trim(),
-      'contact': contactController.text.trim(),
       'isDarkTheme': isDarkTheme,
       'notificationsEnabled': notificationsEnabled,
-      'emailNotificationsEnabled': emailNotificationsEnabled,
       'pushNotificationsEnabled': pushNotificationsEnabled,
     });
 
@@ -217,10 +216,54 @@ class _OrganizationSettingsPageState extends State<OrganizationSettingsPage> {
     }
   }
 
+  void _showEditProfileDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Edit Profile'),
+        content: Form(
+          key: _formKey,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextFormField(
+                controller: nameController,
+                decoration: const InputDecoration(
+                  labelText: 'Organization Name',
+                  border: OutlineInputBorder(),
+                ),
+                validator: (value) {
+                  if (value == null || value.trim().isEmpty) {
+                    return 'Please enter organization name';
+                  }
+                  return null;
+                },
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              if (_formKey.currentState!.validate()) {
+                await _updateProfile();
+                Navigator.pop(context);
+              }
+            },
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   void dispose() {
     nameController.dispose();
-    contactController.dispose();
     super.dispose();
   }
 
@@ -276,19 +319,8 @@ class _OrganizationSettingsPageState extends State<OrganizationSettingsPage> {
               setState(() {
                 notificationsEnabled = val;
                 if (!val) {
-                  emailNotificationsEnabled = false;
                   pushNotificationsEnabled = false;
                 }
-              });
-            },
-          ),
-          SwitchListTile(
-            title: const Text('Email Notifications'),
-            subtitle: const Text('Receive notifications via email'),
-            value: emailNotificationsEnabled,
-            onChanged: (val) {
-              setState(() {
-                emailNotificationsEnabled = val;
               });
             },
           ),
@@ -316,7 +348,7 @@ class _OrganizationSettingsPageState extends State<OrganizationSettingsPage> {
             leading: const Icon(Icons.edit),
             title: const Text('Edit Profile'),
             onTap: () {
-              // Navigate to profile editing page
+              _showEditProfileDialog();
             },
           ),
           ListTile(
@@ -342,6 +374,7 @@ class _OrganizationSettingsPageState extends State<OrganizationSettingsPage> {
               setState(() {
                 isDarkTheme = val;
               });
+              widget.onDarkModeChanged(val);
               if (user != null) {
                 await FirebaseFirestore.instance.collection('users').doc(user!.uid).update({
                   'isDarkTheme': val,
@@ -365,7 +398,7 @@ class _OrganizationSettingsPageState extends State<OrganizationSettingsPage> {
             onTap: () {
               Navigator.push(
                 context,
-                MaterialPageRoute(builder: (context) => const HelpFAQPage()),
+                MaterialPageRoute(builder: (context) => const HelpFAQPage(userType: 'organization')),
               );
             },
           ),

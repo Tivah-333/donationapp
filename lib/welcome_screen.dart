@@ -14,13 +14,14 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
   @override
   void initState() {
     super.initState();
-    _navigateAfterDelay();
+    _navigateUser();
   }
 
-  Future<void> _navigateAfterDelay() async {
+  Future<void> _navigateUser() async {
     await Future.delayed(const Duration(seconds: 2));
-    final prefs = await SharedPreferences.getInstance();
-    final isLoggedIn = prefs.getString('email')?.isNotEmpty ?? false;
+
+    final user = FirebaseAuth.instance.currentUser;
+
     if (!mounted) return;
 
     if (user == null) {

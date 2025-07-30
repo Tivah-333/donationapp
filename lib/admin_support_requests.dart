@@ -3,14 +3,14 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 import 'services/notification_service.dart';
 
-class AdminIssueReportsPage extends StatefulWidget {
-  const AdminIssueReportsPage({Key? key}) : super(key: key);
+class AdminSupportRequestsPage extends StatefulWidget {
+  const AdminSupportRequestsPage({Key? key}) : super(key: key);
 
   @override
-  State<AdminIssueReportsPage> createState() => _AdminIssueReportsPageState();
+  State<AdminSupportRequestsPage> createState() => _AdminSupportRequestsPageState();
 }
 
-class _AdminIssueReportsPageState extends State<AdminIssueReportsPage>
+class _AdminSupportRequestsPageState extends State<AdminSupportRequestsPage>
     with SingleTickerProviderStateMixin {
   String filterStatus = 'All';
   final List<String> statusOptions = ['All', 'Pending', 'In Progress', 'Resolved'];
@@ -42,9 +42,9 @@ class _AdminIssueReportsPageState extends State<AdminIssueReportsPage>
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Issue Reports'),
+        title: const Text('Support Requests'),
         backgroundColor: Colors.deepPurple,
-        foregroundColor: Colors.black, // Ensure text and icons are dark
+        foregroundColor: Colors.black,
         bottom: TabBar(
           controller: tabController,
           tabs: const [
@@ -91,8 +91,8 @@ class _AdminIssueReportsPageState extends State<AdminIssueReportsPage>
             child: TabBarView(
               controller: tabController,
               children: [
-                _buildIssuesList(isArchived: false),
-                _buildIssuesList(isArchived: true),
+                _buildSupportRequestsList(isArchived: false),
+                _buildSupportRequestsList(isArchived: true),
               ],
             ),
           ),
@@ -101,24 +101,24 @@ class _AdminIssueReportsPageState extends State<AdminIssueReportsPage>
     );
   }
 
-  Widget _buildIssuesList({required bool isArchived}) {
+  Widget _buildSupportRequestsList({required bool isArchived}) {
     return StreamBuilder<QuerySnapshot>(
       stream: FirebaseFirestore.instance
-          .collection('issues')
+          .collection('support_requests')
           .where('archived', isEqualTo: isArchived)
           .orderBy('timestamp', descending: true)
           .snapshots(),
       builder: (context, snapshot) {
         if (snapshot.hasError) {
           return const Center(
-            child: Text('Failed to load issues. Please check your connection.'),
+            child: Text('Failed to load support requests. Please check your connection.'),
           );
         }
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());
         }
 
-        final allIssues = snapshot.data!.docs.where((doc) {
+        final allRequests = snapshot.data!.docs.where((doc) {
           final data = doc.data() as Map<String, dynamic>;
           final status = (data['status'] ?? '').toString();
           final ts = data['timestamp'] as Timestamp?;
@@ -132,29 +132,31 @@ class _AdminIssueReportsPageState extends State<AdminIssueReportsPage>
           return true;
         }).toList();
 
-        if (allIssues.isEmpty) {
-          return const Center(child: Text('No issues found.'));
+        if (allRequests.isEmpty) {
+          return const Center(child: Text('No support requests found.'));
         }
 
         return ListView.builder(
-          itemCount: allIssues.length,
+          itemCount: allRequests.length,
           itemBuilder: (context, index) {
-            final doc = allIssues[index];
+            final doc = allRequests[index];
             final data = doc.data() as Map<String, dynamic>;
             final timestamp = (data['timestamp'] as Timestamp?)?.toDate();
+            final userType = data['userType'] as String? ?? 'Unknown';
 
             return Card(
               child: ListTile(
-                title: Text(data['description'] ?? 'No Description'),
+                title: Text(data['message'] ?? 'No Message'),
                 subtitle: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                    Text('From: ${data['userEmail'] ?? 'Unknown'} ($userType)'),
                     Text('Status: ${data['status'] ?? 'Unknown'}'),
                     if (timestamp != null)
-                      Text('Reported on: ${DateFormat('yMMMd').format(timestamp)}'),
+                      Text('Requested on: ${DateFormat('yMMMd').format(timestamp)}'),
                   ],
                 ),
-                onTap: () => _showIssueDetails(doc.id, data),
+                onTap: () => _showSupportRequestDetails(doc.id, data),
               ),
             );
           },
@@ -163,10 +165,12 @@ class _AdminIssueReportsPageState extends State<AdminIssueReportsPage>
     );
   }
 
-  void _showIssueDetails(String issueId, Map<String, dynamic> data) {
-    final TextEditingController commentController = TextEditingController();
+  void _showSupportRequestDetails(String requestId, Map<String, dynamic> data) {
+    final TextEditingController responseController = TextEditingController();
     String currentStatus = data['status'] ?? 'Pending';
     bool isArchived = data['archived'] ?? false;
+    final userType = data['userType'] as String? ?? 'Unknown';
+    final userId = data['userId'] as String?;
 
     showModalBottomSheet(
       context: context,
@@ -184,8 +188,10 @@ class _AdminIssueReportsPageState extends State<AdminIssueReportsPage>
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('Description:', style: Theme.of(context).textTheme.titleMedium),
-                Text(data['description'] ?? ''),
+                Text('Message:', style: Theme.of(context).textTheme.titleMedium),
+                Text(data['message'] ?? ''),
+                const SizedBox(height: 10),
+                Text('From: ${data['userEmail'] ?? 'Unknown'} ($userType)'),
                 const SizedBox(height: 10),
                 Text('Status:', style: Theme.of(context).textTheme.titleMedium),
                 DropdownButton<String>(
@@ -197,8 +203,8 @@ class _AdminIssueReportsPageState extends State<AdminIssueReportsPage>
                     if (value != null) {
                       try {
                         await FirebaseFirestore.instance
-                            .collection('issues')
-                            .doc(issueId)
+                            .collection('support_requests')
+                            .doc(requestId)
                             .update({'status': value});
                         setState(() {
                           currentStatus = value;
@@ -220,8 +226,8 @@ class _AdminIssueReportsPageState extends State<AdminIssueReportsPage>
                       onPressed: () async {
                         try {
                           await FirebaseFirestore.instance
-                              .collection('issues')
-                              .doc(issueId)
+                              .collection('support_requests')
+                              .doc(requestId)
                               .update({'archived': !isArchived});
                           Navigator.pop(context);
                         } catch (e) {
@@ -234,63 +240,54 @@ class _AdminIssueReportsPageState extends State<AdminIssueReportsPage>
                   ],
                 ),
                 const Divider(),
-                Text('Add Comment:', style: Theme.of(context).textTheme.titleMedium),
+                Text('Add Response:', style: Theme.of(context).textTheme.titleMedium),
                 Row(
                   children: [
                     Expanded(
                       child: TextField(
-                        controller: commentController,
-                        decoration: const InputDecoration(hintText: 'Write a comment...'),
+                        controller: responseController,
+                        decoration: const InputDecoration(hintText: 'Write a response...'),
                       ),
                     ),
                     IconButton(
                       icon: const Icon(Icons.send),
                       onPressed: () async {
-                        final text = commentController.text.trim();
-                        if (text.isNotEmpty) {
+                        final text = responseController.text.trim();
+                        if (text.isNotEmpty && userId != null) {
                           try {
-                            // Update the issue with the comment
+                            // Update the support request with the response
                             await FirebaseFirestore.instance
-                                .collection('issues')
-                                .doc(issueId)
+                                .collection('support_requests')
+                                .doc(requestId)
                                 .update({
-                              'comments': FieldValue.arrayUnion([
-                                {
-                                  'text': text,
-                                  'timestamp': FieldValue.serverTimestamp(),
-                                }
-                              ])
+                              'response': text,
+                              'respondedAt': FieldValue.serverTimestamp(),
+                              'status': 'Resolved',
                             });
 
-                            // Send notification to the user who reported the issue
-                            final userId = data['userId'] as String?;
-                            final userType = data['userType'] as String?;
-                            
-                            if (userId != null && userType != null) {
-                              if (userType == 'donor') {
-                                await NotificationService.sendProblemResponseNotification(
-                                  donorId: userId,
-                                  response: text,
-                                  adminName: 'Admin',
-                                  issueType: 'problem_report',
-                                );
-                              } else if (userType == 'organization') {
-                                await NotificationService.sendOrgProblemResponseNotification(
-                                  organizationId: userId,
-                                  response: text,
-                                  adminName: 'Admin',
-                                  issueType: 'problem_report',
-                                );
-                              }
+                            // Send notification to the user
+                            if (userType == 'donor') {
+                              await NotificationService.sendProblemResponseNotification(
+                                donorId: userId,
+                                response: text,
+                                adminName: 'Admin',
+                                issueType: 'support_request',
+                              );
+                            } else if (userType == 'organization') {
+                              await NotificationService.sendOrgSupportResponseNotification(
+                                organizationId: userId,
+                                response: text,
+                                adminName: 'Admin',
+                              );
                             }
 
-                            commentController.clear();
+                            responseController.clear();
                             ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(content: Text('Comment added and notification sent.')),
+                              const SnackBar(content: Text('Response sent and notification delivered.')),
                             );
                           } catch (e) {
                             ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(content: Text('Failed to add comment. Please try again.')),
+                              const SnackBar(content: Text('Failed to send response. Please try again.')),
                             );
                           }
                         }
@@ -305,5 +302,4 @@ class _AdminIssueReportsPageState extends State<AdminIssueReportsPage>
       },
     );
   }
-}
-
+} 

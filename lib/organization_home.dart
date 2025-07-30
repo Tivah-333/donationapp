@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'services/fcm_service.dart';
 import 'widgets/profile_picture_widget.dart';
 
 class OrganizationHome extends StatefulWidget {
@@ -15,6 +16,12 @@ class _OrganizationHomeState extends State<OrganizationHome> {
   void initState() {
     super.initState();
     _checkOrganizationStatus();
+    _initializeNotifications();
+  }
+
+  Future<void> _initializeNotifications() async {
+    // Subscribe to organization notifications
+    await FCMService.subscribeToTopics();
   }
 
   Future<void> _checkOrganizationStatus() async {
@@ -54,6 +61,8 @@ class _OrganizationHomeState extends State<OrganizationHome> {
 
   Future<void> _logout(BuildContext context) async {
     try {
+      // Unsubscribe from notifications before logout
+      await FCMService.unsubscribeFromTopics();
       await FirebaseAuth.instance.signOut();
       if (context.mounted) {
         Navigator.pushNamedAndRemoveUntil(context, '/login', (route) => false);
@@ -72,11 +81,51 @@ class _OrganizationHomeState extends State<OrganizationHome> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Organization Dashboard'),
+        backgroundColor: Colors.deepPurple,
         actions: [
-          IconButton(
-            icon: const Icon(Icons.notifications),
-            tooltip: 'Notifications',
-            onPressed: () => Navigator.pushNamed(context, '/organization/notifications'),
+          StreamBuilder<QuerySnapshot>(
+            stream: FirebaseFirestore.instance
+                .collection('organization_notifications')
+                .where('organizationId', isEqualTo: FirebaseAuth.instance.currentUser?.uid)
+                .where('read', isEqualTo: false)
+                .snapshots(),
+            builder: (context, snapshot) {
+              int unreadCount = snapshot.hasData ? snapshot.data!.docs.length : 0;
+              return Stack(
+                children: [
+                  IconButton(
+                    icon: const Icon(Icons.notifications),
+                    tooltip: 'Notifications',
+                    onPressed: () => Navigator.pushNamed(context, '/organization/notifications'),
+                  ),
+                  if (unreadCount > 0)
+                    Positioned(
+                      right: 8,
+                      top: 8,
+                      child: Container(
+                        padding: const EdgeInsets.all(4),
+                        decoration: BoxDecoration(
+                          color: Colors.red,
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        constraints: const BoxConstraints(
+                          minWidth: 20,
+                          minHeight: 20,
+                        ),
+                        child: Text(
+                          unreadCount.toString(),
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                      ),
+                    ),
+                ],
+              );
+            },
           ),
           const SizedBox(width: 8),
           ProfilePictureWidget(
@@ -111,10 +160,56 @@ class _OrganizationHomeState extends State<OrganizationHome> {
 
             const SizedBox(height: 16),
 
+            // Notifications Button with Badge
+            StreamBuilder<QuerySnapshot>(
+              stream: FirebaseFirestore.instance
+                  .collection('organization_notifications')
+                  .where('organizationId', isEqualTo: FirebaseAuth.instance.currentUser?.uid)
+                  .where('read', isEqualTo: false)
+                  .snapshots(),
+              builder: (context, snapshot) {
+                int unreadCount = snapshot.hasData ? snapshot.data!.docs.length : 0;
+                return Stack(
+                  children: [
+                    _buildActionButton(context, Icons.notifications, 'Notifications', '/organization/notifications'),
+                    if (unreadCount > 0)
+                      Positioned(
+                        right: 8,
+                        top: 8,
+                        child: Container(
+                          padding: const EdgeInsets.all(4),
+                          decoration: BoxDecoration(
+                            color: Colors.red,
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          constraints: const BoxConstraints(
+                            minWidth: 20,
+                            minHeight: 20,
+                          ),
+                          child: Text(
+                            unreadCount.toString(),
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 12,
+                              fontWeight: FontWeight.bold,
+                            ),
+                            textAlign: TextAlign.center,
+                          ),
+                        ),
+                      ),
+                  ],
+                );
+              },
+            ),
+
+            const SizedBox(height: 16),
+
             // Quick Actions
             _buildActionButton(context, Icons.add_circle, 'Create New Donation Request', '/createRequest'),
 
             _buildActionButton(context, Icons.settings, 'Settings', '/organization/settings'),
+
+            const SizedBox(height: 16),
 
             const SizedBox(height: 24),
             const Divider(),

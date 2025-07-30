@@ -57,17 +57,34 @@ class _DistributeDonationsPageState extends State<DistributeDonationsPage> {
         final categorySummary = data['categorySummary'] as Map<String, dynamic>?;
         final title = data['title'] as String? ?? 'Unknown';
         final status = data['status'] as String? ?? 'pending';
+        final assignedTo = data['assignedTo'] as String?;
         
-        // Only count donations that haven't been assigned yet
-        if (status == 'pending' || (status == 'approved' && data['assignedTo'] == null)) {
-          if (categorySummary != null) {
-            for (final entry in categorySummary.entries) {
-              final category = entry.key as String;
-              final quantity = entry.value as int? ?? 0;
+        if (categorySummary != null) {
+          for (final entry in categorySummary.entries) {
+            final category = entry.key as String;
+            final totalQuantity = entry.value as int? ?? 0;
+            
+            // Calculate available quantity based on assignment status
+            int availableQuantity = 0;
+            
+            if (status == 'pending') {
+              // Pending donations are fully available
+              availableQuantity = totalQuantity;
+              print('  📦 Donation ${doc.id}: $title ($category) - PENDING - $totalQuantity available');
+            } else if (status == 'approved') {
+              // Check assigned quantities for this category
+              final assignedQuantities = data['assignedQuantities'] as Map<String, dynamic>? ?? {};
+              final assignedQuantity = assignedQuantities[category] as int? ?? 0;
               
+              // Available quantity is total minus assigned
+              availableQuantity = totalQuantity - assignedQuantity;
+              print('  📦 Donation ${doc.id}: $title ($category) - APPROVED - $totalQuantity total, $assignedQuantity assigned, $availableQuantity available');
+            }
+            
+            if (availableQuantity > 0) {
               categories.add(category);
               categoryTitleTotals[category] ??= {};
-              categoryTitleTotals[category]![title] = (categoryTitleTotals[category]![title] ?? 0) + quantity;
+              categoryTitleTotals[category]![title] = (categoryTitleTotals[category]![title] ?? 0) + availableQuantity;
             }
           }
         }
@@ -122,36 +139,83 @@ class _DistributeDonationsPageState extends State<DistributeDonationsPage> {
         throw Exception('Insufficient $title available. Requested: $requestedQuantity, Available: $availableQuantity');
       }
 
-      // Find a donation that has this title and category
+      // Find a donation that has this title and category with sufficient available quantity
       final donationsSnapshot = await FirebaseFirestore.instance
           .collection('donations')
           .where('status', whereIn: ['pending', 'approved'])
           .get();
 
       String? donationId;
+      int? availableInDonation;
+      
       for (final doc in donationsSnapshot.docs) {
         final data = doc.data();
         final donationTitle = data['title'] as String?;
         final categorySummary = data['categorySummary'] as Map<String, dynamic>?;
         final status = data['status'] as String? ?? 'pending';
         
-        if (donationTitle == title && categorySummary != null && categorySummary.containsKey(category) &&
-            (status == 'pending' || (status == 'approved' && data['assignedTo'] == null))) {
-          donationId = doc.id;
-          break;
+        if (donationTitle == title && categorySummary != null && categorySummary.containsKey(category)) {
+          final totalQuantity = categorySummary[category] as int? ?? 0;
+          int availableQuantity = 0;
+          
+          if (status == 'pending') {
+            availableQuantity = totalQuantity;
+          } else if (status == 'approved') {
+            final assignedQuantities = data['assignedQuantities'] as Map<String, dynamic>? ?? {};
+            final assignedQuantity = assignedQuantities[category] as int? ?? 0;
+            availableQuantity = totalQuantity - assignedQuantity;
+          }
+          
+          if (availableQuantity >= requestedQuantity) {
+            donationId = doc.id;
+            availableInDonation = availableQuantity;
+            print('🔍 Found donation $donationId with $availableInDonation available items');
+            break;
+          }
         }
       }
 
       if (donationId == null) {
-        throw Exception('No donation found with title "$title" in category "$category"');
+        throw Exception('No donation found with title "$title" in category "$category" with sufficient available quantity ($requestedQuantity needed)');
       }
 
-      // Assign the donation to the organization
-      await FirebaseFirestore.instance.collection('donations').doc(donationId).update({
+      // Get the current donation data to check if it's already partially assigned
+      final currentDonationDoc = await FirebaseFirestore.instance.collection('donations').doc(donationId).get();
+      final currentDonationData = currentDonationDoc.data()!;
+      final currentAssignedQuantities = currentDonationData['assignedQuantities'] as Map<String, dynamic>? ?? {};
+      
+      // Update assigned quantities for this category
+      final currentAssignedForCategory = currentAssignedQuantities[category] as int? ?? 0;
+      final newAssignedForCategory = currentAssignedForCategory + requestedQuantity;
+      
+      // Update the assigned quantities map
+      final updatedAssignedQuantities = Map<String, dynamic>.from(currentAssignedQuantities);
+      updatedAssignedQuantities[category] = newAssignedForCategory;
+      
+      // Check if the entire donation is now assigned
+      final categorySummary = currentDonationData['categorySummary'] as Map<String, dynamic>? ?? {};
+      bool isFullyAssigned = true;
+      
+      for (final entry in categorySummary.entries) {
+        final categoryKey = entry.key as String;
+        final totalQuantity = entry.value as int? ?? 0;
+        final assignedQuantity = updatedAssignedQuantities[categoryKey] as int? ?? 0;
+        
+        if (assignedQuantity < totalQuantity) {
+          isFullyAssigned = false;
+          break;
+        }
+      }
+      
+      // Update the donation
+      final updateData = {
         'assignedTo': organizationId,
         'assignedAt': FieldValue.serverTimestamp(),
-        'status': 'approved',
-      });
+        'assignedQuantities': updatedAssignedQuantities,
+        'status': isFullyAssigned ? 'assigned' : 'approved',
+      };
+      
+      await FirebaseFirestore.instance.collection('donations').doc(donationId).update(updateData);
 
       // Get the donation data for notifications
       final donationDoc = await FirebaseFirestore.instance.collection('donations').doc(donationId).get();
@@ -187,6 +251,8 @@ class _DistributeDonationsPageState extends State<DistributeDonationsPage> {
       });
 
       print('✅ Successfully assigned $requestedQuantity items of $title ($category) to $organizationName');
+      print('📊 Updated assigned quantities: $updatedAssignedQuantities');
+      print('📊 Is fully assigned: $isFullyAssigned');
 
       // Send notifications
       await NotificationService.sendDonationAssignedNotification(
@@ -252,7 +318,7 @@ class _DistributeDonationsPageState extends State<DistributeDonationsPage> {
       print('🔍 Looking for organizations requesting $title in $category');
       
       // Get all organizations that have requested this title and category
-      // Look for both pending and approved requests (approved requests can still be assigned)
+      // Only look for pending and approved requests (assigned requests have already been fulfilled)
       final allOrganizationsWithRequests = await FirebaseFirestore.instance
           .collection('donation_requests')
           .where('category', isEqualTo: category)
@@ -261,6 +327,38 @@ class _DistributeDonationsPageState extends State<DistributeDonationsPage> {
           .get();
 
       print('🔍 Found ${allOrganizationsWithRequests.docs.length} total organizations requesting $title in $category');
+      
+      // Debug: Show all requests for this specific title and category
+      print('🔍 All requests for $title in $category:');
+      for (final doc in allOrganizationsWithRequests.docs) {
+        final data = doc.data();
+        print('  - ${data['organizationId']}: ${data['title']} (${data['quantity']} items) - ${data['status']}');
+      }
+      
+      // Debug: Show all requests for this organization
+      final orgRequestsSnapshot = await FirebaseFirestore.instance
+          .collection('donation_requests')
+          .where('organizationId', isEqualTo: 'eU617pSdFmUAUWCvRhCZRTXWdRi1')
+          .get();
+      
+      print('🔍 All requests for organization eU617pSdFmUAUWCvRhCZRTXWdRi1:');
+      for (final doc in orgRequestsSnapshot.docs) {
+        final data = doc.data();
+        print('  - ${data['title']} (${data['category']}) - ${data['status']}');
+      }
+      
+      // Debug: Show all organizations requesting Medical Supplies
+      final medicalRequestsSnapshot = await FirebaseFirestore.instance
+          .collection('donation_requests')
+          .where('category', isEqualTo: 'Medical Supplies')
+          .where('status', whereIn: ['pending', 'approved'])
+          .get();
+      
+      print('🔍 All organizations requesting Medical Supplies:');
+      for (final doc in medicalRequestsSnapshot.docs) {
+        final data = doc.data();
+        print('  - ${data['organizationId']}: ${data['title']} (${data['quantity']} items)');
+      }
       
       final List<Map<String, dynamic>> organizations = [];
       final Set<String> processedOrgIds = <String>{};
@@ -280,7 +378,10 @@ class _DistributeDonationsPageState extends State<DistributeDonationsPage> {
 
       // Process each organization (only once per organization)
       for (final orgId in orgRequests.keys) {
-        if (processedOrgIds.contains(orgId)) continue;
+        if (processedOrgIds.contains(orgId)) {
+          print('⚠️ Skipping duplicate organization: $orgId');
+          continue;
+        }
 
         // Get organization details
         final orgDoc = await FirebaseFirestore.instance.collection('users').doc(orgId).get();
@@ -292,7 +393,19 @@ class _DistributeDonationsPageState extends State<DistributeDonationsPage> {
 
         // Get the earliest request for this organization (FIFO)
         final orgRequestsList = orgRequests[orgId]!;
-        orgRequestsList.sort((a, b) {
+        
+        // Filter to only include requests for this specific title and category
+        final matchingRequests = orgRequestsList.where((doc) {
+          final data = doc.data() as Map<String, dynamic>;
+          return data['title'] == title && data['category'] == category;
+        }).toList();
+        
+        if (matchingRequests.isEmpty) {
+          print('⚠️ No matching requests for $orgId for $title in $category');
+          continue;
+        }
+        
+        matchingRequests.sort((a, b) {
           final aData = a.data() as Map<String, dynamic>;
           final bData = b.data() as Map<String, dynamic>;
           final aTime = aData['timestamp'] as Timestamp?;
@@ -303,7 +416,7 @@ class _DistributeDonationsPageState extends State<DistributeDonationsPage> {
           return aTime.compareTo(bTime); // Oldest first
         });
 
-        final earliestRequest = orgRequestsList.first;
+        final earliestRequest = matchingRequests.first;
         final requestData = earliestRequest.data() as Map<String, dynamic>;
         final quantity = requestData['quantity'] as int? ?? 0;
         final timestamp = requestData['timestamp'] as Timestamp?;
@@ -342,7 +455,9 @@ class _DistributeDonationsPageState extends State<DistributeDonationsPage> {
         final position = org['position'] as int;
         final name = org['name'] as String;
         final status = org['requestStatus'] as String;
-        print('  $position. $name (status: $status)');
+        final timestamp = org['timestamp'] as Timestamp?;
+        final timeStr = timestamp?.toDate().toString() ?? 'No timestamp';
+        print('  $position. $name (status: $status) - $timeStr');
       }
 
       return organizations;
@@ -558,7 +673,7 @@ class _DistributeDonationsPageState extends State<DistributeDonationsPage> {
             ),
             const SizedBox(height: 16),
             const Text(
-              'Assign to Organization:',
+              'Priority Order:',
               style: TextStyle(fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 8),
@@ -585,32 +700,94 @@ class _DistributeDonationsPageState extends State<DistributeDonationsPage> {
                   );
                 }
 
-                return DropdownButtonFormField<String>(
-                  value: _selectedOrganizations[key],
-                  hint: const Text('Select organization'),
-                  items: organizations.map((org) {
-                    final position = org['position'] as int;
-                    final requestedQuantity = org['requestedQuantity'] as int;
-                    final requestStatus = org['requestStatus'] as String;
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Show priority order
+                    ...organizations.map((org) {
+                      final position = org['position'] as int;
+                      final requestedQuantity = org['requestedQuantity'] as int;
+                      final requestStatus = org['requestStatus'] as String;
+                      final timestamp = org['timestamp'] as Timestamp?;
+                      
+                      // Format timestamp for debugging
+                      String timeStr = 'No timestamp';
+                      if (timestamp != null) {
+                        timeStr = '${timestamp.toDate().hour}:${timestamp.toDate().minute.toString().padLeft(2, '0')}';
+                      }
+                      
+                      return Container(
+                        margin: const EdgeInsets.only(bottom: 8),
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: position == 1 ? Colors.green.shade50 : Colors.grey.shade50,
+                          border: Border.all(
+                            color: position == 1 ? Colors.green : Colors.grey,
+                            width: position == 1 ? 2 : 1,
+                          ),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Row(
+                          children: [
+                            Container(
+                              width: 24,
+                              height: 24,
+                              decoration: BoxDecoration(
+                                color: position == 1 ? Colors.green : Colors.grey,
+                                shape: BoxShape.circle,
+                              ),
+                              child: Center(
+                                child: Text(
+                                  '$position',
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    '${org['name']}',
+                                    style: const TextStyle(fontWeight: FontWeight.bold),
+                                  ),
+                                  Text(
+                                    '$requestedQuantity items - ${requestStatus.toUpperCase()} - $timeStr',
+                                    style: TextStyle(
+                                      color: Colors.grey[600],
+                                      fontSize: 12,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    }).toList(),
                     
-                    return DropdownMenuItem<String>(
-                      value: org['id'] as String,
-                      child: Text(
-                        '${org['name']} (#$position - $requestedQuantity items) [${requestStatus.toUpperCase()}]',
-                        overflow: TextOverflow.ellipsis,
+                    if (organizations.isNotEmpty) ...[
+                      const SizedBox(height: 12),
+                      Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: Colors.blue.shade50,
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Text(
+                          '🎯 Will assign to: ${organizations.first['name']} (Priority #1)',
+                          style: const TextStyle(
+                            color: Colors.blue,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
                       ),
-                    );
-                  }).toList(),
-                  onChanged: (value) {
-                    setState(() {
-                      _selectedOrganizations[key] = value;
-                    });
-                  },
-                  decoration: const InputDecoration(
-                    border: OutlineInputBorder(),
-                    contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                  ),
-                  isExpanded: true,
+                    ],
+                  ],
                 );
               },
             ),
@@ -618,19 +795,22 @@ class _DistributeDonationsPageState extends State<DistributeDonationsPage> {
             SizedBox(
               width: double.infinity,
               child: ElevatedButton.icon(
-                onPressed: _isLoading || _selectedOrganizations[key] == null || availableQuantity <= 0
+                onPressed: _isLoading || availableQuantity <= 0
                     ? null
                     : () async {
-                        final orgId = _selectedOrganizations[key]!;
                         final organizations = await _getMatchingOrganizationsForTitle(category, title);
-                        final org = organizations.firstWhere((o) => o['id'] == orgId);
-                        
-                        _assignDonationToOrganization(
-                          category,
-                          title,
-                          orgId,
-                          org['name'],
-                        );
+                        if (organizations.isNotEmpty) {
+                          final firstOrg = organizations.first;
+                          final orgId = firstOrg['id'] as String;
+                          final orgName = firstOrg['name'] as String;
+                          
+                          _assignDonationToOrganization(
+                            category,
+                            title,
+                            orgId,
+                            orgName,
+                          );
+                        }
                       },
                 icon: _isLoading
                     ? const SizedBox(
@@ -639,7 +819,7 @@ class _DistributeDonationsPageState extends State<DistributeDonationsPage> {
                         child: CircularProgressIndicator(strokeWidth: 2),
                       )
                     : const Icon(Icons.local_shipping),
-                label: Text(_isLoading ? 'Assigning...' : 'Assign to Organization'),
+                label: Text(_isLoading ? 'Assigning...' : 'Assign to Priority #1'),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.deepPurple,
                   foregroundColor: Colors.white,

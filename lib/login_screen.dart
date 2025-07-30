@@ -20,6 +20,7 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _isLoading = false;
   bool _obscurePassword = true;
   bool _showForgotPassword = false; // Track if we should show forgot password
+  bool _showUsernameDialog = false; // Track if we should show username dialog
 
 
   Future<void> _login() async {
@@ -114,6 +115,113 @@ class _LoginScreenState extends State<LoginScreen> {
     ).hasMatch(email);
   }
 
+  void _showUsernameVerificationDialog() {
+    final usernameController = TextEditingController();
+    
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: const Text('Verify Your Identity'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text(
+                'Please enter the username you set when you first created your account:',
+                style: TextStyle(fontSize: 14),
+              ),
+              const SizedBox(height: 16),
+              TextField(
+                controller: usernameController,
+                decoration: const InputDecoration(
+                  labelText: 'Username',
+                  border: OutlineInputBorder(),
+                  hintText: 'Enter your username',
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                final username = usernameController.text.trim();
+                if (username.isEmpty) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Please enter your username')),
+                  );
+                  return;
+                }
+                
+                Navigator.of(context).pop();
+                await _verifyUsername(username);
+              },
+              child: const Text('Verify'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Future<void> _verifyUsername(String username) async {
+    setState(() => _isLoading = true);
+    
+    try {
+      // Search for user by username in Firestore
+      final querySnapshot = await FirebaseFirestore.instance
+          .collection('users')
+          .where('username', isEqualTo: username)
+          .limit(1)
+          .get();
+
+      if (querySnapshot.docs.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('No account found with this username. Please try again.'),
+            backgroundColor: Colors.red,
+          ),
+        );
+        return;
+      }
+
+      final userData = querySnapshot.docs.first.data();
+      final email = userData['email'] as String?;
+
+      if (email != null) {
+        // Send password reset email
+        await FirebaseAuth.instance.sendPasswordResetEmail(email: email);
+        
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Password reset email sent to $email. Please check your email.'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Account found but no email associated. Please contact support.'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error: ${e.toString()}'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    } finally {
+      setState(() => _isLoading = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -203,7 +311,7 @@ class _LoginScreenState extends State<LoginScreen> {
               // Only show forgot password after failed login attempt
               if (_showForgotPassword)
                 TextButton(
-                  onPressed: () => Navigator.pushNamed(context, '/forgot-password'),
+                  onPressed: () => _showUsernameVerificationDialog(),
                   child: const Text('Forgot Password?'),
                 ),
             ],
